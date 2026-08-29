@@ -53,10 +53,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
   }
 
-  // 3. Process Topic: ORDERS_CREATE
-  if (topic === 'orders/create' || topic === 'orders/fulfilled') {
+  // 3. Process Webhook Topics
+  if (topic === 'orders/create') {
     await processOrderCreatedWebhook(bodyData, shopDomain, store);
-    return NextResponse.json({ message: 'Order webhook processed successfully' }, { status: 200 });
+    return NextResponse.json({ message: 'Order creation webhook processed successfully' }, { status: 200 });
+  }
+
+  if (topic === 'orders/fulfilled') {
+    await processOrderFulfilledWebhook(bodyData, shopDomain, store);
+    return NextResponse.json({ message: 'Order fulfillment webhook processed successfully' }, { status: 200 });
+  }
+
+  if (topic === 'orders/paid') {
+    await db.addLog('INFO', `💳 Order Paid Notification: Order ${bodyData.name || bodyData.id} marked as Paid on ${shopDomain}`, 'orders/paid', shopDomain);
+    return NextResponse.json({ message: 'Order paid webhook acknowledged' }, { status: 200 });
+  }
+
+  if (topic === 'orders/updated') {
+    await db.addLog('INFO', `📝 Order Updated Notification: Order ${bodyData.name || bodyData.id} updated on ${shopDomain}`, 'orders/updated', shopDomain);
+    return NextResponse.json({ message: 'Order updated webhook acknowledged' }, { status: 200 });
+  }
+
+  if (topic === 'orders/cancelled') {
+    await db.addLog('WARN', `⚠️ Order Cancelled Notification: Order ${bodyData.name || bodyData.id} was cancelled on ${shopDomain}`, 'orders/cancelled', shopDomain);
+    return NextResponse.json({ message: 'Order cancellation webhook acknowledged' }, { status: 200 });
   }
 
   // 4. Process Topic: INVENTORY_LEVELS_UPDATE
@@ -68,8 +88,18 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ message: `Webhook topic '${topic}' received and acknowledged` }, { status: 200 });
 }
 
-async function processOrderCreatedWebhook(order: any, shopDomain: string, sourceStore: any) {
+export async function processOrderCreatedWebhook(order: any, shopDomain: string, sourceStore: any) {
   const orderName = order.name || `OTS-${order.order_number || order.id}`;
+
+  const orderIdStr = String(order.id || '');
+  if (orderIdStr && orderIdStr !== 'N/A') {
+    const alreadySynced = await db.hasOrderBeenSynced(shopDomain, orderIdStr);
+    if (alreadySynced) {
+      await db.addLog('INFO', `Order ${orderName} (${orderIdStr}) on ${shopDomain} already present in Order History. Skipping duplicate.`, 'orders/create', shopDomain);
+      return;
+    }
+  }
+
   await db.addLog('INFO', `📦 Webhook Received: Order ${orderName} created on ${shopDomain}`, 'orders/create', shopDomain);
 
   // 🛑 Loop Protection Check
@@ -210,4 +240,18 @@ async function processInventoryUpdateWebhook(payload: any, shopDomain: string, s
   const available = payload.available;
 
   await db.addLog('INFO', `Inventory Level Update received from ${shopDomain}: InventoryItem ${inventoryItemId} -> Available: ${available}`, 'inventory_levels/update', shopDomain);
+}
+
+async function processOrderFulfilledWebhook(order: any, shopDomain: string, store: any) {
+  const orderName = order.name || `ID_${order.id}`;
+  const fulfillments = order.fulfillments || [];
+  const trackingNumber = fulfillments[0]?.tracking_number || 'N/A';
+  const trackingCompany = fulfillments[0]?.tracking_company || 'Standard Carrier';
+
+  await db.addLog(
+    'INFO',
+    `🚚 Order Fulfilled: ${orderName} on ${shopDomain} (Carrier: ${trackingCompany}, Tracking #: ${trackingNumber})`,
+    'orders/fulfilled',
+    shopDomain
+  );
 }

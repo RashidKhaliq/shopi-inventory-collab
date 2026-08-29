@@ -275,6 +275,24 @@ class InMemoryDatabase {
     if (this.orderSyncs.length > 100) this.orderSyncs.pop();
   }
 
+  public async hasOrderBeenSynced(sourceShopDomain: string, sourceOrderId: string): Promise<boolean> {
+    if (!sourceOrderId || sourceOrderId === 'N/A') return false;
+    const cleanDomain = sourceShopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
+
+    if (process.env.DATABASE_URL) {
+      try {
+        const found = await prisma.orderSync.findFirst({
+          where: { sourceShopDomain: cleanDomain, sourceOrderId }
+        });
+        if (found) return true;
+      } catch (err) {
+        console.warn('Prisma DB error:', err);
+      }
+    }
+
+    return this.orderSyncs.some(s => s.sourceShopDomain === cleanDomain && s.sourceOrderId === sourceOrderId);
+  }
+
   public async getOrderSyncs(limit = 50): Promise<MockOrderSync[]> {
     if (process.env.DATABASE_URL) {
       try {

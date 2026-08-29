@@ -21,6 +21,29 @@ export function cleanShopDomain(url: string): string {
   return url.replace(/^https?:\/\//i, '').replace(/\/$/, '').trim();
 }
 
+// Fetch Orders from Shopify REST API for a given store (e.g. created today or all recent)
+export async function fetchRecentOrdersREST(shopDomain: string, accessToken: string, createdMin?: string): Promise<any[]> {
+  const domain = cleanShopDomain(shopDomain);
+  if (!domain || !accessToken) return [];
+
+  try {
+    let url = `https://${domain}/admin/api/2024-01/orders.json?status=any&limit=50`;
+    if (createdMin) {
+      url += `&created_at_min=${encodeURIComponent(createdMin)}`;
+    }
+
+    const res = await axios.get(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+      timeout: 10000
+    });
+
+    return res.data?.orders || [];
+  } catch (err: any) {
+    await db.addLog('ERROR', `Failed to fetch recent orders from Shopify for ${domain}: ${err.message}`, 'orders_fetch', domain);
+    return [];
+  }
+}
+
 export interface LineItemInfo {
   id: string;
   title: string;

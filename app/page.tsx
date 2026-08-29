@@ -25,6 +25,27 @@ export default function Dashboard() {
   const [simResult, setSimResult] = useState<any>(null);
   const [simLoading, setSimLoading] = useState(false);
 
+  // Sync today's orders state
+  const [syncingToday, setSyncingToday] = useState(false);
+
+  const handleSyncTodayOrders = async () => {
+    setSyncingToday(true);
+    try {
+      const res = await fetch('/api/orders', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        alert(`Today's Order Sync Completed!\nScanned: ${data.totalOrdersFetchedToday || 0} order(s) placed today.`);
+        await Promise.all([fetchOrders(), fetchLogs()]);
+      } else {
+        alert(data.error || 'Failed to sync today orders');
+      }
+    } catch (e: any) {
+      alert('Error syncing today orders: ' + e.message);
+    } finally {
+      setSyncingToday(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
     const interval = setInterval(() => {
@@ -342,9 +363,21 @@ export default function Dashboard() {
         {/* TAB 2: ORDER SYNCS */}
         {activeTab === 'orders' && (
           <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden">
-            <div className="p-4 border-b border-neutral-800 flex justify-between items-center">
-              <h3 className="font-semibold text-sm text-white">Order Synchronization Audit Trail</h3>
-              <span className="text-xs text-neutral-400">Total Synced: {orderSyncs.length}</span>
+            <div className="p-4 border-b border-neutral-800 flex justify-between items-center flex-wrap gap-2">
+              <div>
+                <h3 className="font-semibold text-sm text-white">Order Synchronization Audit Trail</h3>
+                <p className="text-xs text-neutral-400">Includes all orders placed today &amp; cross-store sync history</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleSyncTodayOrders}
+                  disabled={syncingToday}
+                  className="bg-emerald-950 hover:bg-emerald-900 border border-emerald-800 text-emerald-400 text-xs px-3.5 py-1.5 rounded-md font-medium transition flex items-center gap-1.5"
+                >
+                  {syncingToday ? '🔄 Syncing Today\'s Orders...' : '🔄 Sync Today\'s Orders from Shopify'}
+                </button>
+                <span className="text-xs text-neutral-400">Total Records: {orderSyncs.length}</span>
+              </div>
             </div>
 
             <div className="overflow-x-auto">
@@ -506,10 +539,14 @@ export default function Dashboard() {
               </div>
 
               <div className="space-y-2 text-xs text-neutral-300">
-                <p><strong>Required Webhook Event Subscriptions:</strong></p>
+                <p><strong>Recommended Webhook Event Subscriptions (Format: JSON):</strong></p>
                 <ul className="list-disc pl-5 space-y-1 font-mono text-neutral-400">
-                  <li><code>orders/create</code> (Format: JSON)</li>
-                  <li><code>inventory_levels/update</code> (Format: JSON)</li>
+                  <li><code>orders/create</code> (Order Creation &amp; B2B Fulfillment Trigger)</li>
+                  <li><code>orders/fulfilled</code> (Tracking Number &amp; Delivery Status Sync)</li>
+                  <li><code>orders/updated</code> (Order Modification Notifications)</li>
+                  <li><code>orders/paid</code> (Payment Status Events)</li>
+                  <li><code>orders/cancelled</code> (Order Cancellation Alerts)</li>
+                  <li><code>inventory_levels/update</code> (Real-Time SKU Inventory Level Sync)</li>
                 </ul>
               </div>
             </div>
