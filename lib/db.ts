@@ -93,6 +93,38 @@ class InMemoryDatabase {
     }
   }
 
+  private matchesStoreSupplier(store: MockStore, targetName: string): boolean {
+    if (!targetName || !targetName.trim()) return false;
+    const cleanTarget = targetName.trim().toLowerCase().replace(/\s+/g, '');
+    
+    const sSupplier = store.supplierName ? store.supplierName.trim().toLowerCase().replace(/\s+/g, '') : '';
+    const sName = store.name ? store.name.trim().toLowerCase().replace(/\s+/g, '') : '';
+    const sDomain = store.shopDomain ? store.shopDomain.trim().toLowerCase().replace(/\s+/g, '') : '';
+    const sEmail = store.ownerEmail ? store.ownerEmail.trim().toLowerCase().replace(/\s+/g, '') : '';
+
+    // 1. Exact clean match
+    if (sSupplier === cleanTarget || sName === cleanTarget || sDomain === cleanTarget || sEmail === cleanTarget) {
+      return true;
+    }
+
+    // 2. Substring / contains match
+    if ((sName && sName.includes(cleanTarget)) || (sSupplier && cleanTarget.includes(sSupplier)) || (sName && cleanTarget.includes(sName))) {
+      return true;
+    }
+
+    // 3. Strip generic terms ("store", "shop", "supplier")
+    const stripWords = (str: string) => str.replace(/store|shop|supplier|\(|\)/gi, '');
+    const strippedTarget = stripWords(cleanTarget);
+    const strippedSupplier = stripWords(sSupplier);
+    const strippedName = stripWords(sName);
+
+    if (strippedTarget && ((strippedSupplier && strippedSupplier.includes(strippedTarget)) || (strippedName && strippedName.includes(strippedTarget)) || (strippedSupplier && strippedTarget.includes(strippedSupplier)))) {
+      return true;
+    }
+
+    return false;
+  }
+
   public async getStoreByDomain(domain: string): Promise<MockStore | null> {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
     if (process.env.DATABASE_URL) {
@@ -107,18 +139,9 @@ class InMemoryDatabase {
   }
 
   public async getStoreBySupplierName(supplierName: string): Promise<MockStore | null> {
-    const cleanName = supplierName.trim().toLowerCase();
-    if (process.env.DATABASE_URL) {
-      try {
-        const stores = await prisma.store.findMany({ where: { isActive: true } });
-        const match = stores.find(s => s.supplierName.trim().toLowerCase() === cleanName);
-        if (match) return match;
-      } catch (err) {
-        console.warn('Prisma DB error, falling back to memory:', err);
-      }
-    }
-    for (const store of this.stores.values()) {
-      if (store.supplierName.trim().toLowerCase() === cleanName) {
+    const stores = await this.getAllStores();
+    for (const store of stores) {
+      if (this.matchesStoreSupplier(store, supplierName)) {
         return store;
       }
     }
@@ -126,14 +149,18 @@ class InMemoryDatabase {
   }
 
   public async getAllStores(): Promise<MockStore[]> {
+    let stores: MockStore[] = [];
     if (process.env.DATABASE_URL) {
       try {
-        return await prisma.store.findMany({ orderBy: { createdAt: 'desc' } });
+        stores = await prisma.store.findMany({ orderBy: { createdAt: 'desc' } });
       } catch (err) {
         console.warn('Prisma DB error, falling back to memory:', err);
       }
     }
-    return Array.from(this.stores.values());
+    if (stores.length === 0) {
+      stores = Array.from(this.stores.values());
+    }
+    return stores;
   }
 
   public async saveStore(storeData: Omit<MockStore, 'id' | 'createdAt' | 'updatedAt'>): Promise<MockStore> {

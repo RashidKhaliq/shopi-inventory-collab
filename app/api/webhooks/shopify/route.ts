@@ -1,10 +1,10 @@
-// app/api/webhooks/shopify/route.ts - Vercel Serverless Webhook Handler with Idempotency
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import {
   verifyShopifyHmac,
   cleanShopDomain,
   getOrderDetailsGraphQL,
+  getProductDetailsREST,
   extractSupplierName,
   createSupplierFulfillmentOrder,
   syncInventoryAcrossStores,
@@ -90,18 +90,24 @@ async function processOrderCreatedWebhook(order: any, shopDomain: string, source
     ? await getOrderDetailsGraphQL(shopDomain, sourceStore.accessToken, String(order.id))
     : null;
 
-  const lineItems = parsedOrder?.lineItems || (order.line_items || []).map((li: any) => ({
-    id: String(li.id),
-    title: li.title,
-    sku: li.sku ? li.sku.trim() : '',
-    quantity: li.quantity || 1,
-    productId: String(li.product_id),
-    productTags: li.tags || '',
-    customSupplierMetafield: null
-  }));
+  let lineItems: any[] = parsedOrder?.lineItems || [];
+
+  if (lineItems.length === 0 && Array.isArray(order.line_items)) {
+    lineItems = order.line_items.map((li: any) => ({
+      id: String(li.id),
+      title: li.title,
+      sku: li.sku ? li.sku.trim() : '',
+      quantity: li.quantity || 1,
+      productId: String(li.product_id || ''),
+      productTags: '',
+      customSupplierMetafield: null,
+      vendor: li.vendor || ''
+    }));
+  }
 
   // Map items to supplier stores
   const supplierItemsMap: Map<string, { sku: string; quantity: number }[]> = new Map();
+  const processedSkus: string[] = [];
 
   for (const item of lineItems) {
     if (!item.sku) {
@@ -109,28 +115,62 @@ async function processOrderCreatedWebhook(order: any, shopDomain: string, source
       continue;
     }
 
-    const supplierName = extractSupplierName(item.productTags, item.customSupplierMetafield);
-    await db.addLog('INFO', `Line item SKU '${item.sku}' (Qty: ${item.quantity}) -> Supplier Tag/Metafield: "${supplierName || 'None'}"`, 'orders/create', shopDomain);
+    processedSkus.push(item.sku);
 
-    if (supplierName) {
-      const supplierStore = await db.getStoreBySupplierName(supplierName);
-      if (supplierStore) {
-        if (supplierStore.shopDomain === shopDomain) {
-          await db.addLog('INFO', `Supplier '${supplierName}' is the selling store itself (${shopDomain}). No cross-store dropship needed.`, 'orders/create', shopDomain);
-          continue;
-        }
+    let tags = item.productTags;
+    let vendor = item.vendor;
+    let metafield = item.customSupplierMetafield;
 
-        if (!supplierItemsMap.has(supplierStore.shopDomain)) {
-          supplierItemsMap.set(supplierStore.shopDomain, []);
-        }
-        supplierItemsMap.get(supplierStore.shopDomain)!.push({
-          sku: item.sku,
-          quantity: item.quantity
-        });
-      } else {
-        await db.addLog('WARN', `Found Supplier tag '${supplierName}' for SKU '${item.sku}', but no connected store matches supplier name '${supplierName}'`, 'orders/create', shopDomain);
-      }
+    // Fallback: If tags are empty and sourceStore token exists, fetch via REST API
+    if ((!tags || tags.trim() === '') && sourceStore?.accessToken && item.productId) {
+      const restProduct = await getProductDetailsREST(shopDomain, sourceStore.accessToken, item.productId);
+      if (restProduct.tags) tags = restProduct.tags;
+      if (restProduct.vendor) vendor = restProduct.vendor;
     }
+
+    const supplierName = extractSupplierName(tags, metafield, vendor);
+    await db.addLog('INFO', `Line item SKU '${item.sku}' (Qty: ${item.quantity}) -> Resolved Supplier Tag/Vendor: "${supplierName || 'None'}"`, 'orders/create', shopDomain);
+
+    let supplierStore = supplierName ? await db.getStoreBySupplierName(supplierName) : null;
+
+    // Fallback: If supplierStore not found by name, check if any connected store is NOT the selling store
+    if (!supplierStore) {
+      const allStores = await db.getAllStores();
+      supplierStore = allStores.find(s => s.shopDomain !== shopDomain) || null;
+    }
+
+    if (supplierStore) {
+      if (supplierStore.shopDomain === shopDomain) {
+        await db.addLog('INFO', `Supplier '${supplierName || supplierStore.supplierName}' is the selling store itself (${shopDomain}). No cross-store dropship needed.`, 'orders/create', shopDomain);
+        continue;
+      }
+
+      if (!supplierItemsMap.has(supplierStore.shopDomain)) {
+        supplierItemsMap.set(supplierStore.shopDomain, []);
+      }
+      supplierItemsMap.get(supplierStore.shopDomain)!.push({
+        sku: item.sku,
+        quantity: item.quantity
+      });
+    } else {
+      await db.addLog('WARN', `No connected supplier store matched tag/vendor "${supplierName || 'None'}" for SKU '${item.sku}'`, 'orders/create', shopDomain);
+    }
+  }
+
+  // If no cross-store orders needed
+  if (supplierItemsMap.size === 0) {
+    await db.recordOrderSync({
+      sourceShopDomain: shopDomain,
+      targetShopDomain: 'N/A',
+      sourceOrderId: String(order.id || 'N/A'),
+      sourceOrderName: orderName,
+      targetOrderId: null,
+      targetOrderName: null,
+      status: 'SKIPPED',
+      skus: processedSkus.join(', ') || 'No SKUs',
+      error: 'No cross-store supplier items detected for this order.'
+    });
+    return;
   }
 
   // Execute dropship order creation on target supplier stores

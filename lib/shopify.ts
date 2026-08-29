@@ -29,6 +29,7 @@ export interface LineItemInfo {
   productId: string;
   productTags: string;
   customSupplierMetafield?: string | null;
+  vendor?: string | null;
 }
 
 export interface ParsedOrder {
@@ -39,24 +40,63 @@ export interface ParsedOrder {
   lineItems: LineItemInfo[];
 }
 
-// Extract supplier name from Product tags ("Supplier: Hamza") or custom.supplier metafield
-export function extractSupplierName(tags: string, metafield?: string | null): string | null {
+// Extract supplier name from Product tags ("Supplier: Hamza"), custom.supplier metafield, or line item vendor
+export function extractSupplierName(tags?: string | null, metafield?: string | null, vendor?: string | null): string | null {
   if (metafield && metafield.trim() !== '') {
     return metafield.trim();
   }
 
-  if (!tags) return null;
+  if (tags && tags.trim() !== '') {
+    const tagList = tags.split(',').map(t => t.trim());
+    for (const tag of tagList) {
+      // 1. Tag format: "Supplier: Rashid" or "Supplier: Store A" or "Supplier_Rashid"
+      const match = tag.match(/^(?:Supplier|supplier)[:_\s]+(.+)$/i);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
 
-  // Split tags by comma
-  const tagList = tags.split(',').map(t => t.trim());
-  for (const tag of tagList) {
-    const match = tag.match(/^Supplier:\s*(.+)$/i);
-    if (match && match[1]) {
-      return match[1].trim();
+    // 2. Direct tag check if tag doesn't have "Supplier:" prefix (e.g. tag is "Rashid" or "Store A")
+    for (const tag of tagList) {
+      if (tag && tag.length > 1 && !tag.toLowerCase().startsWith('automated')) {
+        return tag.trim();
+      }
     }
   }
 
+  // 3. Fallback to line item vendor if provided
+  if (vendor && vendor.trim() !== '') {
+    const cleanVendor = vendor.trim();
+    const vendorMatch = cleanVendor.match(/^(?:Supplier|supplier)[:_\s]+(.+)$/i);
+    return vendorMatch ? vendorMatch[1].trim() : cleanVendor;
+  }
+
   return null;
+}
+
+// Fetch Product details via REST API if GraphQL order line items missing tags
+export async function getProductDetailsREST(shopDomain: string, accessToken: string, productId: string): Promise<{ tags: string; vendor: string; supplierMetafield: string | null }> {
+  const domain = cleanShopDomain(shopDomain);
+  const cleanId = productId.replace(/^gid:\/\/shopify\/Product\//, '');
+  if (!cleanId) return { tags: '', vendor: '', supplierMetafield: null };
+
+  try {
+    const res = await axios.get(`https://${domain}/admin/api/2024-01/products/${cleanId}.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+      timeout: 8000
+    });
+
+    const product = res.data?.product;
+    if (!product) return { tags: '', vendor: '', supplierMetafield: null };
+
+    return {
+      tags: Array.isArray(product.tags) ? product.tags.join(', ') : (product.tags || ''),
+      vendor: product.vendor || '',
+      supplierMetafield: null
+    };
+  } catch (err: any) {
+    return { tags: '', vendor: '', supplierMetafield: null };
+  }
 }
 
 // Fetch Full Order details using Shopify Admin GraphQL API
@@ -78,9 +118,11 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
               title
               sku
               quantity
+              vendor
               product {
                 id
                 tags
+                vendor
                 metafield(namespace: "custom", key: "supplier") {
                   value
                 }
@@ -112,7 +154,8 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
       quantity: edge.node.quantity || 1,
       productId: edge.node.product?.id ? edge.node.product.id.split('/').pop() : '',
       productTags: Array.isArray(edge.node.product?.tags) ? edge.node.product.tags.join(', ') : (edge.node.product?.tags || ''),
-      customSupplierMetafield: edge.node.product?.metafield?.value || null
+      customSupplierMetafield: edge.node.product?.metafield?.value || null,
+      vendor: edge.node.vendor || edge.node.product?.vendor || ''
     }));
 
     return {
@@ -131,12 +174,13 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
 // Find Variant ID by SKU using GraphQL with REST Fallback
 export async function findVariantIdBySku(shopDomain: string, accessToken: string, sku: string): Promise<{ variantId: string; inventoryItemId?: string } | null> {
   const cleanSku = sku.trim();
+  if (!cleanSku) return null;
   const domain = cleanShopDomain(shopDomain);
 
   // 1. GraphQL Variant Lookup
   const query = `
     query findVariant($query: String!) {
-      productVariants(first: 10, query: $query) {
+      productVariants(first: 20, query: $query) {
         edges {
           node {
             id
@@ -153,7 +197,7 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
   try {
     const res = await axios.post(
       `https://${domain}/admin/api/2024-01/graphql.json`,
-      { query, variables: { query: `sku:${cleanSku}` } },
+      { query, variables: { query: `sku:"${cleanSku.replace(/"/g, '\\"')}"` } },
       {
         headers: { 'X-Shopify-Access-Token': accessToken },
         timeout: 8000
@@ -166,7 +210,7 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
         const gid = edge.node.id;
         const invGid = edge.node.inventoryItem?.id;
         return {
-          variantId: gid ? gid.split('/').pop() : '',
+          variantId: gid ? gid.split('/').pop()! : '',
           inventoryItemId: invGid ? invGid.split('/').pop() : undefined
         };
       }
@@ -175,23 +219,26 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
     await db.addLog('WARN', `GraphQL variant query failed for SKU '${cleanSku}' on ${domain}: ${err.message}`, 'variant_lookup', domain);
   }
 
-  // 2. REST Fallback
+  // 2. REST Fallback via Products List (scanning variants)
   try {
-    const restRes = await axios.get(`https://${domain}/admin/api/2024-01/variants.json?sku=${encodeURIComponent(cleanSku)}`, {
+    const restRes = await axios.get(`https://${domain}/admin/api/2024-01/products.json?limit=250&fields=id,title,variants`, {
       headers: { 'X-Shopify-Access-Token': accessToken },
-      timeout: 8000
+      timeout: 10000
     });
 
-    const variants = restRes.data?.variants || [];
-    const match = variants.find((v: any) => v.sku && v.sku.trim().toLowerCase() === cleanSku.toLowerCase());
-    if (match) {
-      return {
-        variantId: String(match.id),
-        inventoryItemId: String(match.inventory_item_id)
-      };
+    const products = restRes.data?.products || [];
+    for (const prod of products) {
+      for (const v of (prod.variants || [])) {
+        if (v.sku && v.sku.trim().toLowerCase() === cleanSku.toLowerCase()) {
+          return {
+            variantId: String(v.id),
+            inventoryItemId: String(v.inventory_item_id)
+          };
+        }
+      }
     }
   } catch (err: any) {
-    await db.addLog('WARN', `REST variant query fallback failed for SKU '${cleanSku}' on ${domain}: ${err.message}`, 'variant_lookup', domain);
+    await db.addLog('WARN', `REST products search fallback failed for SKU '${cleanSku}' on ${domain}: ${err.message}`, 'variant_lookup', domain);
   }
 
   return null;
@@ -210,8 +257,9 @@ export async function createSupplierFulfillmentOrder(
   for (const item of items) {
     const variant = await findVariantIdBySku(supplierStore.shopDomain, supplierStore.accessToken, item.sku);
     if (variant && variant.variantId) {
+      const parsedId = parseInt(variant.variantId, 10);
       lineItemsPayload.push({
-        variant_id: variant.variantId,
+        variant_id: isNaN(parsedId) ? variant.variantId : parsedId,
         quantity: item.quantity
       });
     } else {
@@ -226,12 +274,17 @@ export async function createSupplierFulfillmentOrder(
     };
   }
 
+  const recipientEmail = supplierStore.ownerEmail && supplierStore.ownerEmail.includes('@')
+    ? supplierStore.ownerEmail
+    : 'orders@dropship-sync.com';
+
   const orderPayload = {
     order: {
       line_items: lineItemsPayload,
-      email: supplierStore.ownerEmail,
+      email: recipientEmail,
       tags: `Automated Dropship, Soldby-${retailerStore.supplierName}`,
       financial_status: "pending",
+      inventory_behaviour: "decrement_obeying_policy",
       note: `Auto-generated B2B order for items sold in order ${sourceOrderName} on ${retailerStore.name}`
     }
   };

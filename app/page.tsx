@@ -27,7 +27,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchLogs, 6000);
+    const interval = setInterval(() => {
+      fetchLogs();
+      fetchOrders();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -140,7 +143,7 @@ export default function Dashboard() {
 
       const data = await res.json();
       setSimResult(data);
-      fetchLogs();
+      await Promise.all([fetchLogs(), fetchOrders()]);
     } catch (e: any) {
       alert('Simulation error: ' + e.message);
     } finally {
