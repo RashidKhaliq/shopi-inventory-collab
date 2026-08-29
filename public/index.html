@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shopify Inventory Sync — Vercel Dashboard</title>
+  <title>Shopify Inventory Sync — Vercel Dashboard & Diagnostics</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -17,7 +17,6 @@
       --text-primary: #ffffff;
       --text-secondary: #888888;
       --text-muted: #555555;
-      --accent-white: #ffffff;
       --accent-green: #00e599;
       --accent-green-bg: rgba(0, 229, 153, 0.08);
       --accent-green-border: rgba(0, 229, 153, 0.25);
@@ -32,11 +31,7 @@
       --font-mono: 'JetBrains Mono', monospace;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       background-color: var(--bg-color);
@@ -78,17 +73,9 @@
       color: var(--text-primary);
     }
 
-    .vercel-logo {
-      width: 22px;
-      height: 22px;
-      fill: var(--text-primary);
-    }
+    .vercel-logo { width: 22px; height: 22px; fill: var(--text-primary); }
 
-    .brand-title {
-      font-weight: 600;
-      font-size: 16px;
-      letter-spacing: -0.02em;
-    }
+    .brand-title { font-weight: 600; font-size: 16px; letter-spacing: -0.02em; }
 
     .brand-tag {
       font-size: 11px;
@@ -100,11 +87,7 @@
       font-weight: 500;
     }
 
-    .header-actions {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
+    .header-actions { display: flex; align-items: center; gap: 12px; }
 
     .system-status-pill {
       display: inline-flex;
@@ -116,73 +99,23 @@
       border-radius: 20px;
       border: 1px solid var(--card-border);
       background: #0a0a0a;
-      transition: all 0.2s ease;
     }
 
     .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--text-muted);
-      position: relative;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-muted); position: relative;
     }
 
-    .status-dot.active {
-      background: var(--accent-green);
-      box-shadow: 0 0 10px var(--accent-green);
-    }
-    .status-dot.active::after {
-      content: '';
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      border-radius: 50%;
-      background: var(--accent-green);
-      animation: pulse 2s infinite;
-    }
+    .status-dot.active { background: var(--accent-green); box-shadow: 0 0 10px var(--accent-green); }
+    .status-dot.error { background: var(--accent-red); box-shadow: 0 0 10px var(--accent-red); }
 
-    .status-dot.error {
-      background: var(--accent-red);
-      box-shadow: 0 0 10px var(--accent-red);
-    }
+    main { max-width: 1200px; margin: 32px auto 0; padding: 0 24px; flex: 1; width: 100%; }
 
-    .status-dot.warning {
-      background: var(--accent-yellow);
-      box-shadow: 0 0 10px var(--accent-yellow);
-    }
+    .hero-banner { margin-bottom: 32px; }
+    .hero-banner h1 { font-size: 30px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; letter-spacing: -0.03em; }
+    .hero-banner p { color: var(--text-secondary); font-size: 15px; }
 
-    @keyframes pulse {
-      0% { transform: scale(1); opacity: 0.8; }
-      100% { transform: scale(2.4); opacity: 0; }
-    }
-
-    main {
-      max-width: 1200px;
-      margin: 32px auto 0;
-      padding: 0 24px;
-      flex: 1;
-      width: 100%;
-    }
-
-    .hero-banner {
-      margin-bottom: 32px;
-    }
-
-    .hero-banner h1 {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--text-primary);
-      letter-spacing: -0.03em;
-      margin-bottom: 8px;
-    }
-
-    .hero-banner p {
-      color: var(--text-secondary);
-      font-size: 15px;
-      line-height: 1.5;
-    }
-
-    /* GLOBAL ALERTS */
+    /* ALERT BANNER */
     .alert-banner {
       background: var(--accent-red-bg);
       border: 1px solid var(--accent-red-border);
@@ -191,57 +124,11 @@
       margin-bottom: 32px;
       display: none;
     }
+    .alert-banner.visible { display: block; }
+    .alert-title { font-weight: 600; font-size: 16px; color: var(--accent-red); margin-bottom: 8px; }
+    .alert-description { color: #e0b0b0; font-size: 14px; line-height: 1.5; }
 
-    .alert-banner.visible {
-      display: block;
-      animation: fadeIn 0.3s ease-in-out;
-    }
-
-    .alert-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 10px;
-    }
-
-    .alert-icon {
-      color: var(--accent-red);
-      font-size: 20px;
-    }
-
-    .alert-title {
-      font-weight: 600;
-      font-size: 16px;
-      color: var(--accent-red);
-    }
-
-    .alert-description {
-      color: #e0b0b0;
-      font-size: 14px;
-      line-height: 1.6;
-    }
-
-    .alert-steps {
-      margin-top: 14px;
-      background: rgba(0, 0, 0, 0.4);
-      border: 1px solid rgba(255, 77, 77, 0.2);
-      border-radius: 8px;
-      padding: 14px 18px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-    }
-
-    .alert-steps ol {
-      margin-left: 20px;
-    }
-
-    .alert-steps li {
-      margin-bottom: 6px;
-      color: #ffcccc;
-    }
-    .alert-steps li:last-child { margin-bottom: 0; }
-
-    /* GRID LAYOUT */
+    /* GRID */
     .grid-2 {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
@@ -254,288 +141,94 @@
       border: 1px solid var(--card-border);
       border-radius: 12px;
       padding: 24px;
-      transition: border-color 0.2s ease, transform 0.2s ease;
-      position: relative;
-      overflow: hidden;
     }
 
-    .card:hover {
-      border-color: var(--card-border-hover);
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 16px;
-    }
-
-    .card-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .store-badge {
-      font-size: 11px;
-      font-family: var(--font-mono);
-      padding: 3px 8px;
-      border-radius: 4px;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: var(--text-secondary);
-    }
+    .card-title { font-size: 17px; font-weight: 600; color: var(--text-primary); margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
 
     .badge-status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      padding: 4px 10px;
-      border-radius: 20px;
+      font-size: 12px; font-weight: 500; padding: 4px 10px; border-radius: 20px;
     }
-
-    .badge-status.connected {
-      background: var(--accent-green-bg);
-      border: 1px solid var(--accent-green-border);
-      color: var(--accent-green);
-    }
-
-    .badge-status.error {
-      background: var(--accent-red-bg);
-      border: 1px solid var(--accent-red-border);
-      color: var(--accent-red);
-    }
-
-    .badge-status.missing {
-      background: var(--accent-yellow-bg);
-      border: 1px solid var(--accent-yellow-border);
-      color: var(--accent-yellow);
-    }
+    .badge-status.connected { background: var(--accent-green-bg); border: 1px solid var(--accent-green-border); color: var(--accent-green); }
+    .badge-status.error { background: var(--accent-red-bg); border: 1px solid var(--accent-red-border); color: var(--accent-red); }
+    .badge-status.missing { background: var(--accent-yellow-bg); border: 1px solid var(--accent-yellow-border); color: var(--accent-yellow); }
 
     .card-body-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 0;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-      font-size: 13.5px;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 9px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.05); font-size: 13.5px;
     }
-
-    .card-body-item:last-child {
-      border-bottom: none;
-    }
-
-    .item-label {
-      color: var(--text-secondary);
-    }
-
-    .item-value {
-      font-family: var(--font-mono);
-      color: var(--text-primary);
-      font-weight: 500;
-      text-align: right;
-      max-width: 60%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
+    .card-body-item:last-child { border-bottom: none; }
+    .item-label { color: var(--text-secondary); }
+    .item-value { font-family: var(--font-mono); color: var(--text-primary); font-weight: 500; }
 
     .error-box {
-      margin-top: 14px;
-      padding: 12px 14px;
-      background: var(--accent-red-bg);
-      border: 1px solid var(--accent-red-border);
-      border-radius: 8px;
-      color: #ff9999;
-      font-size: 12.5px;
-      line-height: 1.4;
-      font-family: var(--font-mono);
-      word-break: break-word;
+      margin-top: 14px; padding: 12px; background: var(--accent-red-bg);
+      border: 1px solid var(--accent-red-border); border-radius: 8px; color: #ff9999; font-size: 12.5px; font-family: var(--font-mono);
     }
 
-    /* WEBHOOKS SECTION */
+    /* ENV CHECKLIST TABLE */
+    .env-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+      font-size: 13px;
+    }
+    .env-table th, .env-table td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+    .env-table th { color: var(--text-secondary); font-weight: 500; background: #070707; }
+    .env-table td { font-family: var(--font-mono); }
+
+    /* WEBHOOK & SIMULATOR */
     .section-title {
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
+      font-size: 19px; font-weight: 600; color: var(--text-primary); margin: 32px 0 16px;
+      display: flex; justify-content: space-between; align-items: center;
     }
 
     .webhook-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 20px 24px;
-      margin-bottom: 16px;
+      background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 12px; padding: 18px 22px; margin-bottom: 14px;
     }
-
-    .webhook-info {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-
-    .webhook-label {
-      font-weight: 500;
-      color: var(--text-primary);
-      font-size: 14px;
-    }
-
     .url-box {
-      display: flex;
-      align-items: center;
-      background: #000000;
-      border: 1px solid var(--card-border);
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-family: var(--font-mono);
-      font-size: 13px;
-      color: #00e599;
-      gap: 12px;
+      display: flex; align-items: center; background: #000; border: 1px solid var(--card-border);
+      border-radius: 8px; padding: 8px 12px; font-family: var(--font-mono); font-size: 13px; color: #00e599; gap: 12px; margin-top: 8px;
     }
-
-    .url-text {
-      flex: 1;
-      overflow-x: auto;
-      white-space: nowrap;
-    }
+    .url-text { flex: 1; overflow-x: auto; white-space: nowrap; }
 
     .btn {
-      background: var(--text-primary);
-      color: #000;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-family: var(--font-sans);
+      background: var(--text-primary); color: #000; border: none; padding: 8px 16px; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-sans);
+    }
+    .btn:hover { background: #e1e1e1; }
+    .btn-secondary { background: rgba(255, 255, 255, 0.08); color: var(--text-primary); border: 1px solid rgba(255, 255, 255, 0.15); }
+    .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* SIMULATOR INPUTS */
+    .sim-form { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+    .sim-input {
+      background: #000; border: 1px solid var(--card-border); color: #fff; padding: 8px 12px;
+      border-radius: 6px; font-family: var(--font-mono); font-size: 13px; flex: 1; min-width: 180px;
+    }
+    .sim-select {
+      background: #000; border: 1px solid var(--card-border); color: #fff; padding: 8px 12px;
+      border-radius: 6px; font-size: 13px;
     }
 
-    .btn:hover {
-      background: #e1e1e1;
-      transform: translateY(-1px);
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--text-primary);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-    }
-
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.15);
-      border-color: rgba(255, 255, 255, 0.3);
-    }
-
-    .btn-sm {
-      padding: 4px 10px;
-      font-size: 12px;
-      border-radius: 4px;
-    }
-
-    /* TERMINAL LOGS */
-    .terminal-container {
-      background: #050505;
-      border: 1px solid var(--card-border);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    .terminal-header {
-      background: #0f0f0f;
-      padding: 12px 20px;
-      border-bottom: 1px solid var(--card-border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .terminal-title {
-      font-size: 13px;
-      font-family: var(--font-mono);
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .terminal-controls {
-      display: flex;
-      gap: 8px;
-    }
-
-    .terminal-body {
-      padding: 16px 20px;
-      max-height: 360px;
-      overflow-y: auto;
-      font-family: var(--font-mono);
-      font-size: 12.5px;
-      line-height: 1.7;
-    }
-
-    .log-line {
-      display: flex;
-      gap: 12px;
-      color: var(--text-secondary);
-      word-break: break-all;
-    }
-
-    .log-time {
-      color: var(--text-muted);
-      flex-shrink: 0;
-    }
-
-    .log-level {
-      font-weight: 600;
-      flex-shrink: 0;
-      width: 55px;
-    }
-
+    /* LOG TERMINAL */
+    .terminal-container { background: #050505; border: 1px solid var(--card-border); border-radius: 12px; overflow: hidden; }
+    .terminal-header { background: #0f0f0f; padding: 12px 20px; border-bottom: 1px solid var(--card-border); display: flex; justify-content: space-between; align-items: center; }
+    .terminal-title { font-size: 13px; font-family: var(--font-mono); color: var(--text-secondary); }
+    .terminal-body { padding: 16px 20px; max-height: 360px; overflow-y: auto; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.7; }
+    .log-line { display: flex; gap: 12px; word-break: break-all; }
+    .log-time { color: var(--text-muted); flex-shrink: 0; }
+    .log-level { font-weight: 600; flex-shrink: 0; width: 55px; }
     .log-level.INFO { color: var(--accent-blue); }
     .log-level.ERROR { color: var(--accent-red); }
     .log-level.WARN { color: var(--accent-yellow); }
+    .log-msg { color: #dddddd; }
 
-    .log-msg {
-      color: #dddddd;
-    }
-
-    footer {
-      max-width: 1200px;
-      margin: 40px auto 0;
-      padding: 0 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      color: var(--text-muted);
-      font-size: 13px;
-      border-top: 1px solid var(--card-border);
-      padding-top: 24px;
-    }
-
-    footer a {
-      color: var(--text-secondary);
-      text-decoration: none;
-    }
-    footer a:hover { color: var(--text-primary); }
-
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(-8px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
+    footer { max-width: 1200px; margin: 40px auto 0; padding: 24px; display: flex; justify-content: space-between; color: var(--text-muted); font-size: 13px; border-top: 1px solid var(--card-border); }
   </style>
 </head>
 <body>
@@ -548,176 +241,147 @@
           <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" fill="currentColor"/>
         </svg>
         <span class="brand-title">Shopify Sync Hub</span>
-        <span class="brand-tag">Vercel Serverless</span>
+        <span class="brand-tag">Vercel Diagnostics</span>
       </a>
 
       <div class="header-actions">
         <div id="system-status-pill" class="system-status-pill">
           <span id="status-dot" class="status-dot"></span>
-          <span id="status-text">Checking Shopify...</span>
+          <span id="status-text">Checking Environment...</span>
         </div>
-        <button onclick="checkHealth()" class="btn btn-secondary btn-sm">
-          🔄 Refresh
+        <button onclick="runDiagnostics()" class="btn btn-secondary btn-sm">
+          🔄 Run Diagnostic Check
         </button>
       </div>
     </div>
   </header>
 
-  <!-- MAIN CONTAINER -->
   <main>
-
-    <!-- HERO SECTION -->
     <div class="hero-banner">
-      <h1>Automated Inventory & Order Sync</h1>
-      <p>Bi-directional Shopify B2B fulfillment automation deployed on Vercel infrastructure.</p>
+      <h1>Automated Dropship Diagnostics &amp; Status</h1>
+      <p>Bi-directional order sync engine between Rashid Store (Store A) &amp; Hamza Store (Store B).</p>
     </div>
 
-    <!-- CONNECTION ERROR ALERT BANNER -->
+    <!-- ALERT BANNER -->
     <div id="global-alert" class="alert-banner">
-      <div class="alert-header">
-        <span class="alert-icon">⚠️</span>
-        <span class="alert-title">Shopify Connection Failure Detected</span>
-      </div>
-      <div class="alert-description" id="alert-desc">
-        One or both of your configured Shopify stores failed to authenticate. Webhook fulfillment requests will not process until credentials are provided.
-      </div>
-      <div class="alert-steps">
-        <strong>Fix Instructions for Vercel Deployment:</strong>
-        <ol id="alert-steps-list">
-          <li>Go to your project on <a href="https://vercel.com/dashboard" target="_blank" style="color: #fff; text-decoration: underline;">Vercel Dashboard</a>.</li>
-          <li>Navigate to <strong>Settings &gt; Environment Variables</strong>.</li>
-          <li>Add <code>STORE_A_URL</code>, <code>STORE_A_ACCESS_TOKEN</code>, <code>STORE_B_URL</code>, and <code>STORE_B_ACCESS_TOKEN</code>.</li>
-          <li>Redeploy your Vercel project to apply changes.</li>
-        </ol>
-      </div>
+      <div class="alert-title">⚠️ Connection or Configuration Issue Detected</div>
+      <div class="alert-description" id="alert-desc">Checking environment configuration...</div>
     </div>
 
-    <!-- STORE HEALTH CARDS GRID -->
+    <!-- STORE HEALTH CARDS -->
     <div class="grid-2">
-      <!-- STORE A CARD -->
-      <div class="card" id="card-store-a">
-        <div class="card-header">
-          <div>
-            <div class="card-title">
-              Rashid Store
-              <span class="store-badge">STORE A</span>
-            </div>
-          </div>
+      <div class="card">
+        <div class="card-title">
+          <span>Rashid Store (Store A)</span>
           <span id="badge-store-a" class="badge-status missing">Checking...</span>
         </div>
-
         <div class="card-body">
-          <div class="card-body-item">
-            <span class="item-label">Store Domain</span>
-            <span class="item-value" id="val-store-a-url">Loading...</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Owner Email</span>
-            <span class="item-value" id="val-store-a-email">Loading...</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Shopify API Status</span>
-            <span class="item-value" id="val-store-a-api">Pending</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Supplier Tag Rule</span>
-            <span class="item-value">Supplier: Hamza</span>
-          </div>
-          <div id="err-store-a" class="error-box" style="display: none;"></div>
+          <div class="card-body-item"><span class="item-label">Domain</span><span class="item-value" id="val-store-a-url">-</span></div>
+          <div class="card-body-item"><span class="item-label">Owner Email</span><span class="item-value" id="val-store-a-email">-</span></div>
+          <div class="card-body-item"><span class="item-label">Shopify API Connection</span><span class="item-value" id="val-store-a-api">-</span></div>
+          <div class="card-body-item"><span class="item-label">Fulfills Items Tagged</span><span class="item-value">Supplier: Hamza</span></div>
+          <div id="err-store-a" class="error-box" style="display:none;"></div>
         </div>
       </div>
 
-      <!-- STORE B CARD -->
-      <div class="card" id="card-store-b">
-        <div class="card-header">
-          <div>
-            <div class="card-title">
-              Hamza Store
-              <span class="store-badge">STORE B</span>
-            </div>
-          </div>
+      <div class="card">
+        <div class="card-title">
+          <span>Hamza Store (Store B)</span>
           <span id="badge-store-b" class="badge-status missing">Checking...</span>
         </div>
-
         <div class="card-body">
-          <div class="card-body-item">
-            <span class="item-label">Store Domain</span>
-            <span class="item-value" id="val-store-b-url">Loading...</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Owner Email</span>
-            <span class="item-value" id="val-store-b-email">Loading...</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Shopify API Status</span>
-            <span class="item-value" id="val-store-b-api">Pending</span>
-          </div>
-          <div class="card-body-item">
-            <span class="item-label">Supplier Tag Rule</span>
-            <span class="item-value">Supplier: Rashid</span>
-          </div>
-          <div id="err-store-b" class="error-box" style="display: none;"></div>
+          <div class="card-body-item"><span class="item-label">Domain</span><span class="item-value" id="val-store-b-url">-</span></div>
+          <div class="card-body-item"><span class="item-label">Owner Email</span><span class="item-value" id="val-store-b-email">-</span></div>
+          <div class="card-body-item"><span class="item-label">Shopify API Connection</span><span class="item-value" id="val-store-b-api">-</span></div>
+          <div class="card-body-item"><span class="item-label">Fulfills Items Tagged</span><span class="item-value">Supplier: Rashid</span></div>
+          <div id="err-store-b" class="error-box" style="display:none;"></div>
         </div>
       </div>
+    </div>
+
+    <!-- ENVIRONMENT VARIABLES CHECKLIST -->
+    <div class="section-title">
+      <span>Vercel Environment Variables Health Checklist</span>
+    </div>
+
+    <div class="card" style="padding: 12px 20px;">
+      <table class="env-table">
+        <thead>
+          <tr>
+            <th>Environment Variable</th>
+            <th>Required For</th>
+            <th>Status</th>
+            <th>Configured Value</th>
+          </tr>
+        </thead>
+        <tbody id="env-checklist-body">
+          <tr><td colspan="4" style="text-align:center; color: var(--text-secondary);">Loading environment variable diagnostics...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- TEST DROPSHIP SIMULATOR -->
+    <div class="section-title">
+      <span>Dropship Test Simulator</span>
+      <span style="font-size:12px; color:var(--text-secondary); font-weight:normal;">Test SKU mapping directly without placing real orders</span>
+    </div>
+
+    <div class="card">
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:12px;">
+        Use this tool to test if a specific SKU on Store B correctly maps to a Variant ID on Store A (or vice versa).
+      </p>
+      <div class="sim-form">
+        <select id="sim-direction" class="sim-select">
+          <option value="B_TO_A">Store B Order -> Create on Store A (Supplier: Rashid)</option>
+          <option value="A_TO_B">Store A Order -> Create on Store B (Supplier: Hamza)</option>
+        </select>
+        <input type="text" id="sim-sku" class="sim-input" placeholder="Enter Product SKU (e.g. SHIRT-001)" />
+        <button class="btn" onclick="runSimulatedSync()">🧪 Test SKU Sync</button>
+      </div>
+      <div id="sim-results" class="error-box" style="display:none; margin-top:16px; background:#000; color:#00e599; border-color:var(--card-border);"></div>
     </div>
 
     <!-- WEBHOOKS CONFIGURATION -->
     <div class="section-title">
-      <span>Shopify Webhook Endpoints</span>
-      <span style="font-size: 13px; color: var(--text-secondary); font-weight: normal;">Configure these in Shopify Admin &gt; Notifications &gt; Webhooks</span>
+      <span>Shopify Webhook URLs</span>
     </div>
 
     <div class="webhook-card">
-      <div class="webhook-info">
-        <span class="webhook-label">Store A (Rashid) Webhook — Event: Order Creation</span>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="font-weight:500; color:#fff; font-size:14px;">Store A Webhook — Event: Order creation</span>
         <button class="btn btn-secondary btn-sm" onclick="copyWebhook('url-store-a')">📋 Copy URL</button>
       </div>
-      <div class="url-box">
-        <span class="url-text" id="url-store-a">https://.../webhooks/store-a/orders/create</span>
-      </div>
+      <div class="url-box"><span class="url-text" id="url-store-a">https://.../webhooks/store-a/orders/create</span></div>
     </div>
 
     <div class="webhook-card">
-      <div class="webhook-info">
-        <span class="webhook-label">Store B (Hamza) Webhook — Event: Order Creation</span>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="font-weight:500; color:#fff; font-size:14px;">Store B Webhook — Event: Order creation</span>
         <button class="btn btn-secondary btn-sm" onclick="copyWebhook('url-store-b')">📋 Copy URL</button>
       </div>
-      <div class="url-box">
-        <span class="url-text" id="url-store-b">https://.../webhooks/store-b/orders/create</span>
-      </div>
+      <div class="url-box"><span class="url-text" id="url-store-b">https://.../webhooks/store-b/orders/create</span></div>
     </div>
 
-    <!-- ACTIVITY LOG TERMINAL -->
-    <div class="section-title" style="margin-top: 36px;">
-      <span>Live Sync Activity Stream</span>
-      <button class="btn btn-secondary btn-sm" onclick="fetchLogs()">Clear &amp; Refresh Logs</button>
+    <!-- ACTIVITY LOG STREAM -->
+    <div class="section-title">
+      <span>Live Sync Activity Terminal</span>
+      <button class="btn btn-secondary btn-sm" onclick="fetchLogs()">Refresh Logs</button>
     </div>
 
     <div class="terminal-container">
       <div class="terminal-header">
-        <div class="terminal-title">
-          <span>⚡ Vercel Log Stream</span>
-          <span style="font-size: 11px; color: var(--text-muted);">Auto-updating</span>
-        </div>
-        <div class="terminal-controls">
-          <button class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 11px;" onclick="fetchLogs()">Refresh</button>
-        </div>
+        <div class="terminal-title">⚡ Live Activity Logs</div>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 8px; font-size:11px;" onclick="fetchLogs()">Refresh</button>
       </div>
       <div class="terminal-body" id="terminal-logs">
         <div class="log-line"><span class="log-time">[Init]</span> <span class="log-msg">Connecting to log stream...</span></div>
       </div>
     </div>
-
   </main>
 
-  <!-- FOOTER -->
   <footer>
-    <div>
-      Deploys seamlessly on <a href="https://vercel.com" target="_blank">Vercel</a> with Node.js serverless functions.
-    </div>
-    <div>
-      Shopify Sync Hub v1.0.0
-    </div>
+    <div>Deploys on Vercel Serverless</div>
+    <div>Shopify Inventory Sync v1.0.0</div>
   </footer>
 
   <script>
@@ -728,55 +392,51 @@
     function copyWebhook(elementId) {
       const text = document.getElementById(elementId).textContent;
       navigator.clipboard.writeText(text).then(() => {
-        alert('Copied Webhook URL to clipboard!');
-      }).catch(err => {
-        console.error('Failed to copy', err);
+        alert('Copied Webhook URL!');
       });
     }
 
-    async function checkHealth() {
-      const statusPill = document.getElementById('system-status-pill');
+    async function runDiagnostics() {
       const statusDot = document.getElementById('status-dot');
       const statusText = document.getElementById('status-text');
       const globalAlert = document.getElementById('global-alert');
       const alertDesc = document.getElementById('alert-desc');
 
-      statusText.textContent = 'Ping Shopify...';
-      statusDot.className = 'status-dot';
+      statusText.textContent = 'Verifying Environment...';
 
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/verify-env');
         const data = await res.json();
 
-        // STORE A UI
+        // STORE CARDS
         updateStoreCard('store-a', data.storeA);
-
-        // STORE B UI
         updateStoreCard('store-b', data.storeB);
 
+        // ENV CHECKLIST TABLE
+        renderEnvChecklist(data.envVariables);
+
         // OVERALL STATUS
-        if (data.overallStatus === 'OK') {
+        if (data.overallStatus === 'ALL_SYSTEMS_GO') {
           statusDot.className = 'status-dot active';
-          statusText.textContent = 'All Systems Operational';
+          statusText.textContent = 'All Environment Variables & Connections OK';
           statusText.style.color = 'var(--accent-green)';
           globalAlert.classList.remove('visible');
         } else {
           statusDot.className = 'status-dot error';
-          statusText.textContent = 'Shopify Connection Error';
+          statusText.textContent = 'Action Required';
           statusText.style.color = 'var(--accent-red)';
           globalAlert.classList.add('visible');
 
           let issues = [];
-          if (data.storeA.status !== 'CONNECTED') issues.push(`Store A (${data.storeA.name}): ${data.storeA.errorDetails || 'Failed'}`);
-          if (data.storeB.status !== 'CONNECTED') issues.push(`Store B (${data.storeB.name}): ${data.storeB.errorDetails || 'Failed'}`);
-          alertDesc.innerHTML = `<strong>Errors detected:</strong><br>${issues.join('<br>')}`;
+          if (data.storeA.status !== 'CONNECTED') issues.push(`• Store A: ${data.storeA.errorDetails}`);
+          if (data.storeB.status !== 'CONNECTED') issues.push(`• Store B: ${data.storeB.errorDetails}`);
+          alertDesc.innerHTML = `<strong>Attention Required:</strong><br>${issues.join('<br>')}<br><br>Please check Vercel Dashboard Settings &gt; Environment Variables.`;
         }
       } catch (err) {
         statusDot.className = 'status-dot error';
-        statusText.textContent = 'Server Unavailable';
-        statusText.style.color = 'var(--accent-red)';
+        statusText.textContent = 'Diagnostic Error';
         globalAlert.classList.add('visible');
-        alertDesc.textContent = 'Failed to communicate with Vercel backend service. Error: ' + err.message;
+        alertDesc.textContent = 'Could not execute diagnostic check: ' + err.message;
       }
 
       fetchLogs();
@@ -789,30 +449,94 @@
       const valApi = document.getElementById(`val-${storeKey}-api`);
       const errBox = document.getElementById(`err-${storeKey}`);
 
-      valUrl.textContent = storeData.url || 'Not Set';
-      valEmail.textContent = storeData.ownerEmail || 'Not Set';
+      valUrl.textContent = storeData.url || 'Not Configured';
+      valEmail.textContent = storeData.ownerEmail || 'Not Configured';
 
       if (storeData.status === 'CONNECTED') {
         badge.className = 'badge-status connected';
         badge.textContent = '✓ Connected';
-        valApi.textContent = storeData.shopName ? `OK (${storeData.shopName})` : 'Connected';
+        valApi.textContent = `OK (${storeData.shopName || 'Shopify API'})`;
         valApi.style.color = 'var(--accent-green)';
         errBox.style.display = 'none';
       } else if (storeData.status === 'CONFIG_MISSING') {
         badge.className = 'badge-status missing';
-        badge.textContent = '⚠ Config Missing';
-        valApi.textContent = 'Environment Missing';
+        badge.textContent = '⚠ Missing Config';
+        valApi.textContent = 'Missing Environment Variables';
         valApi.style.color = 'var(--accent-yellow)';
         errBox.style.display = 'block';
-        errBox.textContent = `Missing `.concat(storeData.missingFields ? storeData.missingFields.join(', ') : 'configuration');
+        errBox.textContent = storeData.errorDetails;
       } else {
         badge.className = 'badge-status error';
         badge.textContent = '✕ Error';
-        valApi.textContent = 'Auth Failed';
+        valApi.textContent = 'Connection Failed';
         valApi.style.color = 'var(--accent-red)';
         errBox.style.display = 'block';
-        errBox.textContent = storeData.errorDetails || 'Failed to connect to Shopify API';
+        errBox.textContent = storeData.errorDetails;
       }
+    }
+
+    function renderEnvChecklist(envVars) {
+      const tbody = document.getElementById('env-checklist-body');
+      if (!envVars) return;
+
+      const keys = [
+        { key: 'STORE_A_URL', desc: 'Store A Shopify URL' },
+        { key: 'STORE_A_ACCESS_TOKEN', desc: 'Store A Admin API Access Token' },
+        { key: 'STORE_A_OWNER_EMAIL', desc: 'Store A Owner Email' },
+        { key: 'STORE_A_WEBHOOK_SECRET', desc: 'Store A Webhook Secret (HMAC verification)' },
+        { key: 'STORE_B_URL', desc: 'Store B Shopify URL' },
+        { key: 'STORE_B_ACCESS_TOKEN', desc: 'Store B Admin API Access Token' },
+        { key: 'STORE_B_OWNER_EMAIL', desc: 'Store B Owner Email' },
+        { key: 'STORE_B_WEBHOOK_SECRET', desc: 'Store B Webhook Secret (HMAC verification)' }
+      ];
+
+      tbody.innerHTML = keys.map(item => {
+        const itemData = envVars[item.key] || { status: 'UNKNOWN', displayValue: '-' };
+        let badgeHtml = '';
+        if (itemData.status === 'OK') {
+          badgeHtml = '<span style="color:var(--accent-green);">✓ OK</span>';
+        } else if (itemData.status === 'OPTIONAL_NOT_SET') {
+          badgeHtml = '<span style="color:var(--accent-yellow);">⚠️ Optional (Not Set)</span>';
+        } else {
+          badgeHtml = '<span style="color:var(--accent-red);">✕ MISSING</span>';
+        }
+
+        return `<tr>
+          <td><strong>${item.key}</strong></td>
+          <td style="font-family:var(--font-sans); color:var(--text-secondary);">${item.desc}</td>
+          <td>${badgeHtml}</td>
+          <td>${itemData.displayValue}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function runSimulatedSync() {
+      const dir = document.getElementById('sim-direction').value;
+      const sku = document.getElementById('sim-sku').value.trim();
+      const resBox = document.getElementById('sim-results');
+
+      if (!sku) {
+        alert('Please enter a SKU to test!');
+        return;
+      }
+
+      resBox.style.display = 'block';
+      resBox.textContent = 'Running test SKU lookup simulation...';
+
+      try {
+        const res = await fetch('/api/test-sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ direction: dir, sku: sku })
+        });
+        const data = await res.json();
+        resBox.innerHTML = `<strong>Simulation Result (${data.success ? 'SUCCESS' : 'FAILED'}):</strong><br>` +
+          data.logTrace.map(line => `• ${escapeHtml(line)}`).join('<br>');
+      } catch (e) {
+        resBox.textContent = 'Simulation request failed: ' + e.message;
+      }
+
+      fetchLogs();
     }
 
     async function fetchLogs() {
@@ -821,7 +545,7 @@
         const res = await fetch('/api/logs');
         const logs = await res.json();
         if (!logs || logs.length === 0) {
-          container.innerHTML = '<div class="log-line"><span class="log-time">[System]</span> <span class="log-msg">No logs recorded yet.</span></div>';
+          container.innerHTML = '<div class="log-line"><span class="log-time">[System]</span> <span class="log-msg">No activity recorded yet.</span></div>';
           return;
         }
 
@@ -843,9 +567,8 @@
       return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
-    // Auto load on start
-    checkHealth();
-    setInterval(fetchLogs, 8000);
+    runDiagnostics();
+    setInterval(fetchLogs, 5000);
   </script>
 </body>
 </html>
