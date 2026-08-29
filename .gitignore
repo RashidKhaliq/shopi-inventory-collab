@@ -1,0 +1,34 @@
+# Dependencies
+/node_modules
+/.pnpm-store
+
+# Next.js build output & cache
+/.next/
+/out/
+/.cache/
+/.vercel
+
+# Logs
+*.log
+activity.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env*.local
+.env.development
+.env.production
+.env.test
+
+# Legacy files
+index.js
+index.js.OLD
+
+# IDE & OS files
+.DS_Store
+*.pem
+.vscode/
+.idea/
+thumbs.db
