@@ -1,4 +1,4 @@
-// index.js - Automated Dropshipping (Hub Model / Option A)
+// index.js - Automated Dropshipping (Hub Model / Option A) — Vercel Serverless Ready
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
@@ -9,83 +9,91 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-// --- LOGGING ---
-// Writes every activity (webhook hits, verification results, order processing,
-// errors) to activity.log in the same directory as this script, and also
-// echoes to the console.
-const LOG_FILE = path.join(__dirname, 'activity.log');
+// --- IN-MEMORY LOG BUFFER (Safe for Vercel Serverless) ---
+const MAX_LOGS = 150;
+const inMemoryLogs = [];
+const LOG_FILE = path.join('/tmp', 'activity.log');
 
 function log(level, message) {
   const timestamp = new Date().toISOString();
-  const line = `[${timestamp}] [${level}] ${message}`;
+  const logEntry = { timestamp, level, message };
 
-  // Always echo to console
-  if (level === 'ERROR') {
-    console.error(line);
-  } else {
-    console.log(line);
+  // Store in memory for API / UI
+  inMemoryLogs.push(logEntry);
+  if (inMemoryLogs.length > MAX_LOGS) {
+    inMemoryLogs.shift();
   }
 
-  // Append to log file (fire-and-forget, but catch errors so logging
-  // failures never crash the app)
-  fs.appendFile(LOG_FILE, line + '\n', (err) => {
-    if (err) console.error(`Failed to write to log file: ${err.message}`);
-  });
+  // Always echo to console (Vercel runtime collects console logs)
+  const formattedLine = `[${timestamp}] [${level}] ${message}`;
+  if (level === 'ERROR') {
+    console.error(formattedLine);
+  } else {
+    console.log(formattedLine);
+  }
+
+  // Best-effort write to log file (suppress read-only file system errors on serverless)
+  try {
+    fs.appendFile(LOG_FILE, formattedLine + '\n', (err) => {
+      // Ignored intentionally on serverless read-only filesystems
+    });
+  } catch (err) {
+    // Ignore filesystem write failures on Vercel
+  }
 }
 
-// Middleware for HMAC
+// Middleware for HMAC & Static files
 app.use(express.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
 
-// Log every incoming request hitting the server (webhook or otherwise)
+// Serve static assets from public/ folder
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Log every incoming request hitting the server
 app.use((req, res, next) => {
-  log('INFO', `Incoming ${req.method} ${req.originalUrl} from ${req.ip}`);
+  if (!req.originalUrl.startsWith('/api/logs')) {
+    log('INFO', `Incoming ${req.method} ${req.originalUrl} from ${req.ip || 'client'}`);
+  }
   next();
 });
 
-// --- CONFIGURATION ---
-// Addresses are hardcoded here for simplicity, but you can move them to .env if you prefer JSON parsing.
-const SHOPIFY_CONFIG = {
-  STORE_A: { // RASHID
-    name: "Rashid Store",
-    url: process.env.STORE_A_URL,
-    token: process.env.STORE_A_ACCESS_TOKEN,
-    ownerEmail: process.env.STORE_A_OWNER_EMAIL, // rashidkhaliq88@gmail.com
-    // The address Rashid ships TO (Hamza's address) if Hamza orders from him
-    // Since this is Option A: The partner receives the goods.
-    // NOTE: When Rashid orders from Hamza, it ships to Rashid. When Hamza orders from Rashid, it ships to Hamza.
-    address: { 
-      first_name: "Rashid", 
-      last_name: "Khaliq",
-      address1: "Township", 
-      city: "Lahore", 
-      country: "PK", 
-      zip: "54000" 
+// --- CONFIGURATION BUILDER ---
+function getShopifyConfig() {
+  return {
+    STORE_A: { // RASHID
+      key: 'STORE_A',
+      name: "Rashid Store",
+      url: process.env.STORE_A_URL,
+      token: process.env.STORE_A_ACCESS_TOKEN,
+      ownerEmail: process.env.STORE_A_OWNER_EMAIL,
+      webhookSecret: process.env.STORE_A_WEBHOOK_SECRET,
+      address: { 
+        first_name: "Rashid", 
+        last_name: "Khaliq",
+        address1: "Township", 
+        city: "Lahore", 
+        country: "PK", 
+        zip: "54000" 
+      }
+    },
+    STORE_B: { // Hamza
+      key: 'STORE_B',
+      name: "Hamza Store",
+      url: process.env.STORE_B_URL,
+      token: process.env.STORE_B_ACCESS_TOKEN,
+      ownerEmail: process.env.STORE_B_OWNER_EMAIL,
+      webhookSecret: process.env.STORE_B_WEBHOOK_SECRET,
+      address: { 
+        first_name: "Hamza", 
+        last_name: "Owner",
+        address1: "Wapda Town", 
+        city: "Lahore", 
+        country: "PK", 
+        zip: "54000" 
+      }
     }
-  },
-  STORE_B: { // Hamza
-    name: "Hamza Store",
-    url: process.env.STORE_B_URL,
-    token: process.env.STORE_B_ACCESS_TOKEN,
-    ownerEmail: process.env.STORE_B_OWNER_EMAIL, // Hamzatvc@gmail.com
-    address: { 
-      first_name: "Hamza", 
-      last_name: "Owner",
-      address1: "Wapda Town", 
-      city: "Lahore", 
-      country: "PK", 
-      zip: "54000" 
-    }
-  }
-};
-
-// Warn on startup if config looks incomplete (e.g. .env not loaded)
-for (const key of ['STORE_A', 'STORE_B']) {
-  const store = SHOPIFY_CONFIG[key];
-  if (!store.url || !store.token || !store.ownerEmail) {
-    log('ERROR', `${key} is missing config (url/token/ownerEmail). Check .env is present and loaded.`);
-  }
+  };
 }
 
 const verifyWebhook = (req, secret) => {
@@ -95,23 +103,120 @@ const verifyWebhook = (req, secret) => {
   return hmac === generatedHash;
 };
 
+// --- FRONTEND DASHBOARD ROUTE ---
+app.get('/', (req, res) => {
+  const htmlPath = path.join(__dirname, 'public', 'index.html');
+  if (fs.existsSync(htmlPath)) {
+    res.sendFile(htmlPath);
+  } else {
+    res.status(200).send('<h1>Shopify Inventory Sync Hub</h1><p>Server running.</p>');
+  }
+});
+
+// --- DIAGNOSTICS & STATUS API ---
+app.get('/api/status', async (req, res) => {
+  const config = getShopifyConfig();
+  const report = {
+    timestamp: new Date().toISOString(),
+    overallStatus: 'OK',
+    storeA: await testStoreConnection(config.STORE_A),
+    storeB: await testStoreConnection(config.STORE_B)
+  };
+
+  if (report.storeA.status !== 'CONNECTED' || report.storeB.status !== 'CONNECTED') {
+    report.overallStatus = 'DEGRADED';
+  }
+  if (report.storeA.status === 'ERROR' && report.storeB.status === 'ERROR') {
+    report.overallStatus = 'ERROR';
+  }
+
+  res.json(report);
+});
+
+app.get('/api/logs', (req, res) => {
+  res.json(inMemoryLogs);
+});
+
+async function testStoreConnection(store) {
+  const missing = [];
+  if (!store.url) missing.push(`${store.key}_URL`);
+  if (!store.token) missing.push(`${store.key}_ACCESS_TOKEN`);
+  if (!store.ownerEmail) missing.push(`${store.key}_OWNER_EMAIL`);
+
+  if (missing.length > 0) {
+    log('WARN', `${store.name} connection test: missing environment variables (${missing.join(', ')})`);
+    return {
+      name: store.name,
+      url: store.url || null,
+      ownerEmail: store.ownerEmail || null,
+      status: 'CONFIG_MISSING',
+      missingFields: missing,
+      errorDetails: `Missing environment variable(s): ${missing.join(', ')}`
+    };
+  }
+
+  // Format store URL safely
+  let cleanUrl = store.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+  try {
+    const res = await axios.get(`https://${cleanUrl}/admin/api/2024-01/shop.json`, {
+      headers: { 'X-Shopify-Access-Token': store.token },
+      timeout: 8000
+    });
+
+    const shop = res.data?.shop || {};
+    log('INFO', `Shopify API check SUCCESS for ${store.name} (${shop.name || cleanUrl})`);
+    return {
+      name: store.name,
+      url: cleanUrl,
+      ownerEmail: store.ownerEmail,
+      status: 'CONNECTED',
+      shopName: shop.name,
+      myshopifyDomain: shop.myshopify_domain,
+      domain: shop.domain,
+      planName: shop.plan_name,
+      currency: shop.currency
+    };
+  } catch (err) {
+    let errorDetails = err.message;
+    if (err.response) {
+      if (err.response.status === 401) {
+        errorDetails = `HTTP 401 Unauthorized: Invalid Shopify Access Token (${store.key}_ACCESS_TOKEN).`;
+      } else if (err.response.status === 404) {
+        errorDetails = `HTTP 404 Not Found: Check store URL (${store.key}_URL=${cleanUrl}).`;
+      } else {
+        errorDetails = `HTTP ${err.response.status} Error from Shopify: ${JSON.stringify(err.response.data)}`;
+      }
+    } else if (err.code === 'ENOTFOUND') {
+      errorDetails = `DNS Lookup failed for store domain '${cleanUrl}'. Verify hostname.`;
+    }
+
+    log('ERROR', `Shopify API check FAILED for ${store.name}: ${errorDetails}`);
+    return {
+      name: store.name,
+      url: cleanUrl,
+      ownerEmail: store.ownerEmail,
+      status: 'ERROR',
+      errorDetails: errorDetails
+    };
+  }
+}
+
 // --- WEBHOOKS ---
 
 // 1. Order Created on RASHID'S STORE
-// Detects if Rashid sold Hamza's items. If so, creates order on Hamza's store.
 app.post('/webhooks/store-a/orders/create', async (req, res) => {
+  const config = getShopifyConfig();
   try {
-    const verified = verifyWebhook(req, process.env.STORE_A_WEBHOOK_SECRET);
+    const verified = verifyWebhook(req, config.STORE_A.webhookSecret);
     log('INFO', `Webhook hit: store-a/orders/create | order=${req.body?.name || 'unknown'} | verified=${verified}`);
 
-    if (!verified) {
+    if (!verified && config.STORE_A.webhookSecret) {
       log('ERROR', `store-a webhook failed HMAC verification for order ${req.body?.name || 'unknown'}`);
       return res.status(401).send('Unauthorized');
     }
 
-    // We check if any item sold on Rashid's store has the tag "Supplier: Hamza"
-    await processDropship(req.body, SHOPIFY_CONFIG.STORE_A, SHOPIFY_CONFIG.STORE_B, 'Supplier: Hamza');
-
+    await processDropship(req.body, config.STORE_A, config.STORE_B, 'Supplier: Hamza');
     res.status(200).send('Processed');
   } catch (e) {
     log('ERROR', `store-a webhook handler error: ${e.message}`);
@@ -120,20 +225,18 @@ app.post('/webhooks/store-a/orders/create', async (req, res) => {
 });
 
 // 2. Order Created on Hamza'S STORE
-// Detects if Hamza sold Rashid's items. If so, creates order on Rashid's store.
 app.post('/webhooks/store-b/orders/create', async (req, res) => {
+  const config = getShopifyConfig();
   try {
-    const verified = verifyWebhook(req, process.env.STORE_B_WEBHOOK_SECRET);
+    const verified = verifyWebhook(req, config.STORE_B.webhookSecret);
     log('INFO', `Webhook hit: store-b/orders/create | order=${req.body?.name || 'unknown'} | verified=${verified}`);
 
-    if (!verified) {
+    if (!verified && config.STORE_B.webhookSecret) {
       log('ERROR', `store-b webhook failed HMAC verification for order ${req.body?.name || 'unknown'}`);
       return res.status(401).send('Unauthorized');
     }
 
-    // We check if any item sold on Hamza's store has the tag "Supplier: Rashid"
-    await processDropship(req.body, SHOPIFY_CONFIG.STORE_B, SHOPIFY_CONFIG.STORE_A, 'Supplier: Rashid');
-
+    await processDropship(req.body, config.STORE_B, config.STORE_A, 'Supplier: Rashid');
     res.status(200).send('Processed');
   } catch (e) {
     log('ERROR', `store-b webhook handler error: ${e.message}`);
@@ -147,8 +250,6 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
   log('INFO', `Processing Order ${order.name} from ${sourceStore.name}`);
 
   // 🛑 LOOP PROTECTION
-  // If the order email matches the Target Store Owner, it means the Target Store Owner created this order.
-  // We should NOT dropship it back to them.
   if (order.email === targetStore.ownerEmail) {
     log('INFO', `Loop protection active for order ${order.name}. Ignoring B2B order.`);
     return;
@@ -156,13 +257,10 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
 
   const itemsToDropship = [];
 
-  // Check every item in the order
-  for (const item of order.line_items) {
+  for (const item of (order.line_items || [])) {
     if (!item.sku) continue;
 
-    // Fetch tags from the SOURCE store to see if it's a dropship item
     const tags = await getProductTags(sourceStore, item.product_id);
-
     if (tags.includes(targetSupplierTag)) {
       log('INFO', `Found dropship item: SKU=${item.sku} qty=${item.quantity} (order ${order.name})`);
       itemsToDropship.push({
@@ -181,10 +279,12 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
 
 async function getProductTags(store, productId) {
   try {
-    const res = await axios.get(`https://${store.url}/admin/api/2024-01/products/${productId}.json`, {
-      headers: { 'X-Shopify-Access-Token': store.token }
+    const cleanUrl = store.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const res = await axios.get(`https://${cleanUrl}/admin/api/2024-01/products/${productId}.json`, {
+      headers: { 'X-Shopify-Access-Token': store.token },
+      timeout: 8000
     });
-    return res.data.product.tags || '';
+    return res.data.product?.tags || '';
   } catch (e) {
     log('ERROR', `Error fetching product ${productId} from ${store.name}: ${e.message}`);
     return '';
@@ -194,7 +294,6 @@ async function getProductTags(store, productId) {
 async function createOrderOnSupplierStore(supplierStore, retailerStore, items) {
   log('INFO', `Creating order on ${supplierStore.name} for ${items.length} item(s)...`);
 
-  // 1. Map SKUs to Variant IDs on the Supplier Store
   const line_items = [];
   for (const item of items) {
     const variantId = await findVariantIdBySku(supplierStore, item.sku);
@@ -213,9 +312,6 @@ async function createOrderOnSupplierStore(supplierStore, retailerStore, items) {
     return;
   }
 
-  // 2. Construct Order
-  // Customer is the Retailer (Hamza or Rashid). 
-  // Shipping Address is the Retailer's Address (Option A).
   const orderPayload = {
     order: {
       line_items: line_items,
@@ -223,14 +319,16 @@ async function createOrderOnSupplierStore(supplierStore, retailerStore, items) {
       shipping_address: retailerStore.address,
       billing_address: retailerStore.address,
       tags: "Automated Dropship",
-      financial_status: "pending", // Created as Pending so you can review before paying/fulfilling
+      financial_status: "pending",
       note: `Auto-generated order for items sold on ${retailerStore.name}`
     }
   };
 
   try {
-    const res = await axios.post(`https://${supplierStore.url}/admin/api/2024-01/orders.json`, orderPayload, {
-      headers: { 'X-Shopify-Access-Token': supplierStore.token }
+    const cleanUrl = supplierStore.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const res = await axios.post(`https://${cleanUrl}/admin/api/2024-01/orders.json`, orderPayload, {
+      headers: { 'X-Shopify-Access-Token': supplierStore.token },
+      timeout: 10000
     });
     log('INFO', `Successfully created Order #${res.data.order.order_number} on ${supplierStore.name}`);
   } catch (e) {
@@ -258,12 +356,12 @@ async function findVariantIdBySku(store, sku) {
     }
   `;
   try {
-    const res = await axios.post(`https://${store.url}/admin/api/2024-01/graphql.json`, { query }, {
-      headers: { 'X-Shopify-Access-Token': store.token }
+    const cleanUrl = store.url.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const res = await axios.post(`https://${cleanUrl}/admin/api/2024-01/graphql.json`, { query }, {
+      headers: { 'X-Shopify-Access-Token': store.token },
+      timeout: 8000
     });
-    const variantId = res.data.data.products.edges[0]?.node.variants.edges[0]?.node.id;
-    // Convert gid://shopify/ProductVariant/12345 to 12345 if necessary, though REST API accepts GID mostly.
-    // Ideally we strip it for REST API compatibility.
+    const variantId = res.data.data?.products?.edges[0]?.node?.variants?.edges[0]?.node?.id;
     return variantId ? variantId.split('/').pop() : null;
   } catch (e) {
     log('ERROR', `GraphQL variant lookup failed for SKU ${sku} on ${store.name}: ${e.message}`);
@@ -271,4 +369,10 @@ async function findVariantIdBySku(store, sku) {
   }
 }
 
-app.listen(PORT, () => log('INFO', `Server running on ${PORT}`));
+// Start server locally if not invoked as a Vercel serverless module
+if (require.main === module) {
+  app.listen(PORT, () => log('INFO', `Server running on port ${PORT}`));
+}
+
+// Export Express app for Vercel Serverless environment
+module.exports = app;
