@@ -24,7 +24,7 @@ export default function Dashboard() {
   const [authChecking, setAuthChecking] = useState(true);
   const [passwordInput, setPasswordInput] = useState('');
   const [authError, setAuthError] = useState('');
-  
+
   // Password Reset Modal States
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [currentPasswordInput, setCurrentPasswordInput] = useState('');
@@ -363,7 +363,7 @@ export default function Dashboard() {
           </form>
 
           <div className="mt-6 pt-4 border-t border-neutral-900 text-center text-[11px] text-neutral-500">
-            Default Password: <code className="text-neutral-300 bg-neutral-900 px-1.5 py-0.5 rounded font-mono">P@k!stan1947</code>
+            Default Password: <code className="text-neutral-300 bg-neutral-900 px-1.5 py-0.5 rounded font-mono">abc123456</code>
           </div>
         </div>
       </div>
@@ -496,11 +496,10 @@ export default function Dashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap -mb-px ${
-                activeTab === tab.id
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap -mb-px ${activeTab === tab.id
                   ? 'border-white text-white'
                   : 'border-transparent text-neutral-400 hover:text-neutral-200'
-              }`}
+                }`}
             >
               {tab.label}
             </button>
@@ -522,21 +521,19 @@ export default function Dashboard() {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => handleUpdateSyncMode('MINUS_INVENTORY')}
-                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${
-                      inventorySyncMode === 'MINUS_INVENTORY'
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${inventorySyncMode === 'MINUS_INVENTORY'
                         ? 'bg-white text-black border-white font-semibold'
                         : 'bg-black text-neutral-400 border-neutral-800 hover:text-white'
-                    }`}
+                      }`}
                   >
                     <span>📉 Deduct Sold QTY (-1)</span>
                   </button>
                   <button
                     onClick={() => handleUpdateSyncMode('DRAFT_PRODUCT')}
-                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${
-                      inventorySyncMode === 'DRAFT_PRODUCT'
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${inventorySyncMode === 'DRAFT_PRODUCT'
                         ? 'bg-amber-400 text-black border-amber-400 font-semibold'
                         : 'bg-black text-neutral-400 border-neutral-800 hover:text-white'
-                    }`}
+                      }`}
                   >
                     <span>📝 Draft Sold Product</span>
                   </button>
@@ -544,114 +541,114 @@ export default function Dashboard() {
               </div>
             </div>
 
-          <div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-              {stores.map((st: any) => (
-                <div key={st.id || st.shopDomain} className="bg-neutral-950 border border-neutral-800 rounded-xl p-6 hover:border-neutral-700 transition">
-                  <div className="flex justify-between items-start mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-white">{st.name}</h3>
-                      <p className="font-mono text-xs text-neutral-400 mt-0.5">{st.shopDomain}</p>
+            <div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                {stores.map((st: any) => (
+                  <div key={st.id || st.shopDomain} className="bg-neutral-950 border border-neutral-800 rounded-xl p-6 hover:border-neutral-700 transition">
+                    <div className="flex justify-between items-start mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-white">{st.name}</h3>
+                        <p className="font-mono text-xs text-neutral-400 mt-0.5">{st.shopDomain}</p>
+                      </div>
+                      <span className="bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs px-2.5 py-1 rounded-full font-medium">
+                        ✓ Connected
+                      </span>
                     </div>
-                    <span className="bg-emerald-950/80 border border-emerald-800 text-emerald-400 text-xs px-2.5 py-1 rounded-full font-medium">
-                      ✓ Connected
-                    </span>
+
+                    <div className="space-y-2 text-xs divide-y divide-neutral-900">
+                      <div className="flex justify-between pt-2">
+                        <span className="text-neutral-400">Owner Email</span>
+                        <span className="font-mono text-white">{st.ownerEmail}</span>
+                      </div>
+                      <div className="flex justify-between pt-2">
+                        <span className="text-neutral-400">Supplier Tag Identifier</span>
+                        <span className="font-mono text-emerald-400 font-medium">Supplier: {st.supplierName}</span>
+                      </div>
+                      <div className="flex justify-between pt-2">
+                        <span className="text-neutral-400">Fulfills Soldby Tag</span>
+                        <span className="font-mono text-white">Soldby-{st.supplierName}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ADD NEW STORE FORM */}
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-6">
+                <h3 className="text-lg font-semibold text-white mb-2">Connect New Independent Shopify Store</h3>
+                <p className="text-xs text-neutral-400 mb-6">
+                  Enter your store details and Admin API Access Token to pair it for automated B2B dropship synchronization.
+                </p>
+
+                {addStoreSuccess && (
+                  <div className="mb-4 p-3 bg-emerald-950/50 border border-emerald-800 text-emerald-300 text-xs rounded-md">
+                    {addStoreSuccess}
+                  </div>
+                )}
+
+                <form onSubmit={handleAddStore} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-neutral-300 mb-1">Shopify Store Domain *</label>
+                    <input
+                      type="text"
+                      placeholder="example.myshopify.com"
+                      value={newStoreDomain}
+                      onChange={e => setNewStoreDomain(e.target.value)}
+                      className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
+                    />
                   </div>
 
-                  <div className="space-y-2 text-xs divide-y divide-neutral-900">
-                    <div className="flex justify-between pt-2">
-                      <span className="text-neutral-400">Owner Email</span>
-                      <span className="font-mono text-white">{st.ownerEmail}</span>
-                    </div>
-                    <div className="flex justify-between pt-2">
-                      <span className="text-neutral-400">Supplier Tag Identifier</span>
-                      <span className="font-mono text-emerald-400 font-medium">Supplier: {st.supplierName}</span>
-                    </div>
-                    <div className="flex justify-between pt-2">
-                      <span className="text-neutral-400">Fulfills Soldby Tag</span>
-                      <span className="font-mono text-white">Soldby-{st.supplierName}</span>
-                    </div>
+                  <div>
+                    <label className="block text-xs text-neutral-300 mb-1">Store Display Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rashid Store"
+                      value={newStoreName}
+                      onChange={e => setNewStoreName(e.target.value)}
+                      className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-600"
+                    />
                   </div>
-                </div>
-              ))}
-            </div>
 
-            {/* ADD NEW STORE FORM */}
-            <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-2">Connect New Independent Shopify Store</h3>
-              <p className="text-xs text-neutral-400 mb-6">
-                Enter your store details and Admin API Access Token to pair it for automated B2B dropship synchronization.
-              </p>
+                  <div>
+                    <label className="block text-xs text-neutral-300 mb-1">Admin API Access Token (shpat_*) *</label>
+                    <input
+                      type="password"
+                      placeholder="shpat_xxxxxxxxxxxxxxxx"
+                      value={newAccessToken}
+                      onChange={e => setNewAccessToken(e.target.value)}
+                      className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
 
-              {addStoreSuccess && (
-                <div className="mb-4 p-3 bg-emerald-950/50 border border-emerald-800 text-emerald-300 text-xs rounded-md">
-                  {addStoreSuccess}
-                </div>
-              )}
+                  <div>
+                    <label className="block text-xs text-neutral-300 mb-1">Owner Email Address *</label>
+                    <input
+                      type="email"
+                      placeholder="owner@example.com"
+                      value={newOwnerEmail}
+                      onChange={e => setNewOwnerEmail(e.target.value)}
+                      className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
 
-              <form onSubmit={handleAddStore} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs text-neutral-300 mb-1">Shopify Store Domain *</label>
-                  <input
-                    type="text"
-                    placeholder="example.myshopify.com"
-                    value={newStoreDomain}
-                    onChange={e => setNewStoreDomain(e.target.value)}
-                    className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
-                  />
-                </div>
+                  <div>
+                    <label className="block text-xs text-neutral-300 mb-1">Supplier Name Tag (e.g. Rashid or Hamza) *</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Rashid"
+                      value={newSupplierName}
+                      onChange={e => setNewSupplierName(e.target.value)}
+                      className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
 
-                <div>
-                  <label className="block text-xs text-neutral-300 mb-1">Store Display Name</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Rashid Store"
-                    value={newStoreName}
-                    onChange={e => setNewStoreName(e.target.value)}
-                    className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-neutral-300 mb-1">Admin API Access Token (shpat_*) *</label>
-                  <input
-                    type="password"
-                    placeholder="shpat_xxxxxxxxxxxxxxxx"
-                    value={newAccessToken}
-                    onChange={e => setNewAccessToken(e.target.value)}
-                    className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-neutral-300 mb-1">Owner Email Address *</label>
-                  <input
-                    type="email"
-                    placeholder="owner@example.com"
-                    value={newOwnerEmail}
-                    onChange={e => setNewOwnerEmail(e.target.value)}
-                    className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-neutral-300 mb-1">Supplier Name Tag (e.g. Rashid or Hamza) *</label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Rashid"
-                    value={newSupplierName}
-                    onChange={e => setNewSupplierName(e.target.value)}
-                    className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"
-                  />
-                </div>
-
-                <div className="flex items-end">
-                  <button type="submit" className="w-full bg-white hover:bg-neutral-200 text-black font-semibold text-xs py-2.5 rounded-md transition">
-                    + Connect Store Credentials
-                  </button>
-                </div>
-              </form>
-            </div>
+                  <div className="flex items-end">
+                    <button type="submit" className="w-full bg-white hover:bg-neutral-200 text-black font-semibold text-xs py-2.5 rounded-md transition">
+                      + Connect Store Credentials
+                    </button>
+                  </div>
+                </form>
+              </div>
             </div>
           </div>
         )}
@@ -773,11 +770,10 @@ export default function Dashboard() {
                               <td className="p-3.5 text-right text-neutral-400">{row.totalQty}</td>
                               <td className="p-3.5 text-right text-white font-semibold">${row.stockValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
                               <td className="p-3.5 text-right">
-                                <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
-                                  row.sellThroughRatio > 50 ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
-                                  row.sellThroughRatio > 20 ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' :
-                                  'bg-neutral-900 border border-neutral-800 text-neutral-400'
-                                }`}>
+                                <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${row.sellThroughRatio > 50 ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
+                                    row.sellThroughRatio > 20 ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' :
+                                      'bg-neutral-900 border border-neutral-800 text-neutral-400'
+                                  }`}>
                                   {row.sellThroughRatio}%
                                 </span>
                               </td>
@@ -869,13 +865,12 @@ export default function Dashboard() {
                         <td className="p-3 text-neutral-300">{ord.skus}</td>
                         <td className="p-3">
                           <span
-                            className={`px-2 py-0.5 rounded text-[11px] font-medium ${
-                              ord.status === 'SUCCESS'
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium ${ord.status === 'SUCCESS'
                                 ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                                 : ord.status === 'SKIPPED'
-                                ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                                : 'bg-rose-950 text-rose-400 border border-rose-800'
-                            }`}
+                                  ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                                  : 'bg-rose-950 text-rose-400 border border-rose-800'
+                              }`}
                           >
                             {ord.status}
                           </span>
