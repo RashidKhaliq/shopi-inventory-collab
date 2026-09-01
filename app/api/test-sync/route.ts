@@ -81,39 +81,69 @@ export async function POST(req: NextRequest) {
     let createdOrderResult: any = null;
 
     if (createTestOrder || createTestOrder === undefined) {
-      trace.push(`🚀 Creating simulated order on ${targetStore.name}...`);
+      trace.push(`🚀 Executing order & inventory sync simulation on ${targetStore.name}...`);
       const retailerStore = sourceStore || {
         shopDomain: cleanSource,
         name: cleanSource,
         supplierName: cleanSource.split('.')[0]
       };
 
-      createdOrderResult = await createSupplierFulfillmentOrder(
-        targetStore,
-        retailerStore,
-        [{ sku: cleanSku, quantity: 1 }],
-        testOrderName
-      );
+      // Check if self-sale or cross-store dropship
+      const isSelfSale = cleanSource === cleanTarget;
 
-      await db.recordOrderSync({
-        sourceShopDomain: cleanSource,
-        targetShopDomain: cleanTarget,
-        sourceOrderId: `SIM-${Date.now()}`,
-        sourceOrderName: testOrderName,
-        targetOrderId: createdOrderResult.orderId || null,
-        targetOrderName: createdOrderResult.orderName || null,
-        status: createdOrderResult.success ? 'SUCCESS' : 'FAILED',
-        skus: `${cleanSku} (x1)`,
-        error: createdOrderResult.error || null
-      });
+      if (isSelfSale) {
+        trace.push(`✓ Self-Sale Scenario Detected (Selling & Supplier Store are same: ${cleanSource}).`);
+        trace.push(`📉 Deducting inventory (-1) across connected stores...`);
+        const { syncInventoryAcrossStores, tagProductWithSellerOnStores } = await import('@/lib/shopify');
+        await syncInventoryAcrossStores(cleanSource, cleanSku, 1);
+        await tagProductWithSellerOnStores(cleanSku, retailerStore.supplierName || retailerStore.name);
+        trace.push(`🏷️ Added tag 'Soldby-${retailerStore.supplierName || retailerStore.name}' to product across connected stores.`);
 
-      if (createdOrderResult.success) {
-        trace.push(`🎉 Successfully created B2B Order ${createdOrderResult.orderName} on ${targetStore.name}!`);
-        trace.push(`✓ Logged in Order Sync History.`);
+        await db.recordOrderSync({
+          sourceShopDomain: cleanSource,
+          targetShopDomain: cleanTarget,
+          sourceOrderId: `SIM-${Date.now()}`,
+          sourceOrderName: testOrderName,
+          targetOrderId: `SIM-${Date.now()}`,
+          targetOrderName: testOrderName,
+          status: 'SUCCESS',
+          skus: `${cleanSku} (x1)`,
+          error: `SIMULATION: Self-sale on ${cleanSource}. Inventory deducted (-1) & product tagged Soldby-${retailerStore.supplierName || retailerStore.name} across connected stores.`
+        });
+        createdOrderResult = { success: true, orderId: `SIM-${Date.now()}`, orderName: testOrderName };
       } else {
-        trace.push(`✕ Failed to create order on ${targetStore.name}: ${createdOrderResult.error}`);
+        createdOrderResult = await createSupplierFulfillmentOrder(
+          targetStore,
+          retailerStore,
+          [{ sku: cleanSku, quantity: 1 }],
+          testOrderName
+        );
+
+        await db.recordOrderSync({
+          sourceShopDomain: cleanSource,
+          targetShopDomain: cleanTarget,
+          sourceOrderId: `SIM-${Date.now()}`,
+          sourceOrderName: testOrderName,
+          targetOrderId: createdOrderResult.orderId || null,
+          targetOrderName: createdOrderResult.orderName || null,
+          status: createdOrderResult.success ? 'SUCCESS' : 'FAILED',
+          skus: `${cleanSku} (x1)`,
+          error: createdOrderResult.error || null
+        });
+
+        if (createdOrderResult.success) {
+          trace.push(`🎉 Successfully created B2B Order ${createdOrderResult.orderName} on ${targetStore.name}!`);
+          trace.push(`📉 Deducting inventory (-1) across connected stores...`);
+          const { syncInventoryAcrossStores, tagProductWithSellerOnStores } = await import('@/lib/shopify');
+          await syncInventoryAcrossStores(targetStore.shopDomain, cleanSku, 1);
+          await tagProductWithSellerOnStores(cleanSku, retailerStore.supplierName || retailerStore.name);
+          trace.push(`✓ Logged to Order Sync Audit Trail.`);
+        } else {
+          trace.push(`✕ Failed to create order on ${targetStore.name}: ${createdOrderResult.error}`);
+        }
       }
     }
+
 
     return NextResponse.json({
       success: createdOrderResult ? createdOrderResult.success : true,

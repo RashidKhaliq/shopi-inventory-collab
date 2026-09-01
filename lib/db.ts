@@ -68,6 +68,7 @@ class InMemoryDatabase {
   public processedWebhooks: Set<string> = new Set();
   public logs: MockSyncLog[] = [];
   public orderSyncs: MockOrderSync[] = [];
+  public inventorySyncMode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT' = 'MINUS_INVENTORY';
 
   constructor() {
     this.seedDefaultStores();
@@ -128,6 +129,9 @@ class InMemoryDatabase {
         if (Array.isArray(data.processedWebhooks)) {
           this.processedWebhooks = new Set(data.processedWebhooks);
         }
+        if (data.inventorySyncMode === 'DRAFT_PRODUCT' || data.inventorySyncMode === 'MINUS_INVENTORY') {
+          this.inventorySyncMode = data.inventorySyncMode;
+        }
       }
     } catch (e) {
       console.warn('Error reading db fallback storage from disk:', e);
@@ -141,13 +145,24 @@ class InMemoryDatabase {
         stores: Array.from(this.stores.values()),
         orderSyncs: this.orderSyncs,
         logs: this.logs,
-        processedWebhooks: Array.from(this.processedWebhooks)
+        processedWebhooks: Array.from(this.processedWebhooks),
+        inventorySyncMode: this.inventorySyncMode
       };
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     } catch (e) {
       console.warn('Error saving db fallback storage to disk:', e);
     }
   }
+
+  public getInventorySyncMode(): 'MINUS_INVENTORY' | 'DRAFT_PRODUCT' {
+    return this.inventorySyncMode;
+  }
+
+  public setInventorySyncMode(mode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT'): void {
+    this.inventorySyncMode = mode;
+    this.saveToDisk();
+  }
+
 
   private matchesStoreSupplier(store: MockStore, targetName: string): boolean {
     if (!targetName || !targetName.trim()) return false;

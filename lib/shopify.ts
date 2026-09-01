@@ -388,19 +388,7 @@ export async function syncInventoryAcrossStores(
 ): Promise<void> {
   const stores = await db.getAllStores();
   const cleanSource = cleanShopDomain(sourceShopDomain);
-
-  // Determine updated available quantity from source store if explicit quantity provided
-  let targetAvailable = explicitNewQuantity;
-
-  if (targetAvailable === undefined) {
-    const sourceStore = stores.find(s => cleanShopDomain(s.shopDomain) === cleanSource);
-    if (sourceStore && sourceStore.accessToken) {
-      const sourceVariant = await findVariantIdBySku(sourceShopDomain, sourceStore.accessToken, sku);
-      if (sourceVariant && sourceVariant.availableQuantity !== undefined) {
-        targetAvailable = sourceVariant.availableQuantity;
-      }
-    }
-  }
+  const syncMode = db.getInventorySyncMode();
 
   // Deduct inventory across all other connected stores
   for (const store of stores) {
@@ -411,6 +399,26 @@ export async function syncInventoryAcrossStores(
       try {
         const domain = cleanShopDomain(store.shopDomain);
 
+        if (syncMode === 'DRAFT_PRODUCT' && variant.productId) {
+          // Unpublish/draft product on connected store when sold
+          const cleanProductId = variant.productId.split('/').pop();
+          await axios.put(
+            `https://${domain}/admin/api/2024-01/products/${cleanProductId}.json`,
+            { product: { id: cleanProductId, status: 'draft' } },
+            {
+              headers: { 'X-Shopify-Access-Token': store.accessToken },
+              timeout: 8000
+            }
+          );
+          await db.addLog(
+            'INFO',
+            `📝 Set Product status to 'draft' for SKU '${sku}' on connected store ${store.name}`,
+            'inventory_sync',
+            store.shopDomain
+          );
+          continue;
+        }
+
         // Get primary location ID
         const locRes = await axios.get(`https://${domain}/admin/api/2024-01/locations.json`, {
           headers: { 'X-Shopify-Access-Token': store.accessToken },
@@ -420,14 +428,14 @@ export async function syncInventoryAcrossStores(
         const locationId = locRes.data?.locations?.[0]?.id;
         if (!locationId) continue;
 
-        if (targetAvailable !== undefined) {
-          // Set exact available quantity to match source store
+        if (explicitNewQuantity !== undefined) {
+          // Set exact available quantity
           await axios.post(
             `https://${domain}/admin/api/2024-01/inventory_levels/set.json`,
             {
               location_id: locationId,
               inventory_item_id: variant.inventoryItemId,
-              available: targetAvailable
+              available: explicitNewQuantity
             },
             {
               headers: { 'X-Shopify-Access-Token': store.accessToken },
@@ -436,12 +444,12 @@ export async function syncInventoryAcrossStores(
           );
           await db.addLog(
             'INFO',
-            `📉 Inventory Synced for SKU '${sku}' on ${store.name} -> Available set to: ${targetAvailable}`,
+            `📉 Inventory Synced for SKU '${sku}' on ${store.name} -> Available set to: ${explicitNewQuantity}`,
             'inventory_sync',
             store.shopDomain
           );
         } else {
-          // Adjust inventory level by minus soldQuantity
+          // ALWAYS Adjust inventory level by minus soldQuantity (-1, -2, etc.)
           await axios.post(
             `https://${domain}/admin/api/2024-01/inventory_levels/adjust.json`,
             {
@@ -472,6 +480,7 @@ export async function syncInventoryAcrossStores(
     }
   }
 }
+
 
 // Add Tag of Seller (e.g. Soldby-StoreAName) to Product across connected stores
 export async function tagProductWithSellerOnStores(sku: string, sellerName: string): Promise<void> {
@@ -637,33 +646,34 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
 
     let supplierStore = supplierName ? await db.getStoreBySupplierName(supplierName) : null;
 
-    if (supplierStore) {
-      if (supplierStore.shopDomain === shopDomain) {
-        // Scenario 2: Store A sells its own product
-        await db.addLog(
-          'INFO',
-          `✓ Store A (${shopDomain}) sells its own product (SKU '${item.sku}', Supplier: ${supplierStore.supplierName}). No dropshipping order required.`,
-          'orders/create',
-          shopDomain
-        );
-        selfSaleItems.push({ sku: item.sku, quantity: item.quantity });
-      } else {
-        // Scenario 1: Store B sells Store A's product
-        if (!supplierItemsMap.has(supplierStore.shopDomain)) {
-          supplierItemsMap.set(supplierStore.shopDomain, []);
-        }
-        supplierItemsMap.get(supplierStore.shopDomain)!.push({
-          sku: item.sku,
-          quantity: item.quantity
-        });
-      }
-    } else {
+    // Default Fallback: If no explicit supplier tag/metafield matched another store,
+    // the product sold on shopDomain belongs to shopDomain itself (Self Sale)!
+    if (!supplierStore) {
+      supplierStore = sourceStore || {
+        shopDomain,
+        name: shopDomain,
+        supplierName: shopDomain.split('.')[0]
+      };
+    }
+
+    if (supplierStore.shopDomain === shopDomain) {
+      // Scenario 2: Store A sells its own product
       await db.addLog(
-        'WARN',
-        `No connected store matched supplier identifier "${supplierName || 'None'}" for SKU '${item.sku}'`,
+        'INFO',
+        `✓ Store A (${shopDomain}) sells its own product (SKU '${item.sku}', Supplier: ${supplierStore.supplierName || 'Self'}). No dropshipping order required.`,
         'orders/create',
         shopDomain
       );
+      selfSaleItems.push({ sku: item.sku, quantity: item.quantity });
+    } else {
+      // Scenario 1: Store B sells Store A's product
+      if (!supplierItemsMap.has(supplierStore.shopDomain)) {
+        supplierItemsMap.set(supplierStore.shopDomain, []);
+      }
+      supplierItemsMap.get(supplierStore.shopDomain)!.push({
+        sku: item.sku,
+        quantity: item.quantity
+      });
     }
   }
 

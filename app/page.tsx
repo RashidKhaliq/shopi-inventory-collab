@@ -3,12 +3,21 @@
 import React, { useState, useEffect } from 'react';
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState<'stores' | 'orders' | 'logs' | 'simulator' | 'webhooks'>('stores');
+  const [activeTab, setActiveTab] = useState<'stores' | 'inventory' | 'orders' | 'logs' | 'simulator' | 'webhooks'>('stores');
   const [statusData, setStatusData] = useState<any>(null);
   const [stores, setStores] = useState<any[]>([]);
   const [orderSyncs, setOrderSyncs] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Inventory Analytics Dashboard States
+  const [inventoryAnalytics, setInventoryAnalytics] = useState<any>(null);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const rowsPerPage = 20;
+
+  // Inventory Sync Mode Setting
+  const [inventorySyncMode, setInventorySyncMode] = useState<'MINUS_INVENTORY' | 'DRAFT_PRODUCT'>('MINUS_INVENTORY');
 
   // Authentication & Lock Screen States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -40,6 +49,45 @@ export default function Dashboard() {
 
   // Sync today's orders state
   const [syncingToday, setSyncingToday] = useState(false);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch('/api/settings');
+      const data = await res.json();
+      if (data.inventorySyncMode) {
+        setInventorySyncMode(data.inventorySyncMode);
+      }
+    } catch (e) {
+      console.error('Error fetching settings', e);
+    }
+  };
+
+  const handleUpdateSyncMode = async (mode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT') => {
+    setInventorySyncMode(mode);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventorySyncMode: mode })
+      });
+    } catch (e) {
+      console.error('Error updating sync mode', e);
+    }
+  };
+
+  const fetchInventoryAnalytics = async () => {
+    setInventoryLoading(true);
+    try {
+      const res = await fetch('/api/inventory-analytics');
+      const data = await res.json();
+      setInventoryAnalytics(data);
+    } catch (e) {
+      console.error('Error fetching inventory analytics', e);
+    } finally {
+      setInventoryLoading(false);
+    }
+  };
+
 
   const handleSyncTodayOrders = async () => {
     setSyncingToday(true);
@@ -138,9 +186,10 @@ export default function Dashboard() {
 
   const fetchData = async () => {
     setLoading(true);
-    await Promise.all([fetchStatus(), fetchStores(), fetchOrders(), fetchLogs()]);
+    await Promise.all([fetchStatus(), fetchStores(), fetchOrders(), fetchLogs(), fetchSettings(), fetchInventoryAnalytics()]);
     setLoading(false);
   };
+
 
   const fetchStatus = async () => {
     try {
@@ -435,9 +484,10 @@ export default function Dashboard() {
 
 
         {/* TABS NAVIGATION */}
-        <div className="flex border-b border-neutral-800 mb-8 gap-2">
+        <div className="flex border-b border-neutral-800 mb-8 gap-2 overflow-x-auto">
           {[
             { id: 'stores', label: `Connected Stores (${stores.length})` },
+            { id: 'inventory', label: '📊 Inventory Dashboard' },
             { id: 'orders', label: `Order Sync History (${orderSyncs.length})` },
             { id: 'logs', label: `Live Activity Stream (${logs.length})` },
             { id: 'simulator', label: '🧪 SKU Simulator' },
@@ -446,7 +496,7 @@ export default function Dashboard() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition -mb-px ${
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 transition whitespace-nowrap -mb-px ${
                 activeTab === tab.id
                   ? 'border-white text-white'
                   : 'border-transparent text-neutral-400 hover:text-neutral-200'
@@ -459,6 +509,41 @@ export default function Dashboard() {
 
         {/* TAB 1: STORES */}
         {activeTab === 'stores' && (
+          <div>
+            {/* INVENTORY SYNC MODE CONFIGURATION */}
+            <div className="mb-6 p-5 bg-neutral-950 border border-neutral-800 rounded-xl">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-white">⚙️ Inventory Sync Rule Strategy</h3>
+                  <p className="text-xs text-neutral-400 mt-0.5">
+                    Select action when a product is sold on any store (Self-sale or Dropship):
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => handleUpdateSyncMode('MINUS_INVENTORY')}
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${
+                      inventorySyncMode === 'MINUS_INVENTORY'
+                        ? 'bg-white text-black border-white font-semibold'
+                        : 'bg-black text-neutral-400 border-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    <span>📉 Deduct Sold QTY (-1)</span>
+                  </button>
+                  <button
+                    onClick={() => handleUpdateSyncMode('DRAFT_PRODUCT')}
+                    className={`px-3.5 py-2 text-xs font-medium rounded-lg border transition flex items-center gap-1.5 ${
+                      inventorySyncMode === 'DRAFT_PRODUCT'
+                        ? 'bg-amber-400 text-black border-amber-400 font-semibold'
+                        : 'bg-black text-neutral-400 border-neutral-800 hover:text-white'
+                    }`}
+                  >
+                    <span>📝 Draft Sold Product</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
           <div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
               {stores.map((st: any) => (
@@ -570,8 +655,171 @@ export default function Dashboard() {
           </div>
         )}
 
+        {/* TAB: INVENTORY DASHBOARD */}
+        {activeTab === 'inventory' && (
+          <div>
+            {/* KPI SUMMARY CARDS */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                <span className="text-[11px] text-neutral-400 font-medium">Stock Value</span>
+                <div className="text-xl font-bold text-emerald-400 font-mono mt-1">
+                  ${inventoryAnalytics?.summary?.stockValue ? inventoryAnalytics.summary.stockValue.toLocaleString('en-US', { minimumFractionDigits: 2 }) : '0.00'}
+                </div>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Total Inventory Value</span>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                <span className="text-[11px] text-neutral-400 font-medium">Sell-Through %</span>
+                <div className="text-xl font-bold text-white font-mono mt-1">
+                  {inventoryAnalytics?.summary?.sellThroughRatio ?? 0}%
+                </div>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Sold / Total Ratio</span>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                <span className="text-[11px] text-neutral-400 font-medium">AFS QTY</span>
+                <div className="text-xl font-bold text-white font-mono mt-1">
+                  {inventoryAnalytics?.summary?.afsQty ?? 0}
+                </div>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Available for Sale</span>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                <span className="text-[11px] text-neutral-400 font-medium">Sold QTY</span>
+                <div className="text-xl font-bold text-cyan-400 font-mono mt-1">
+                  {inventoryAnalytics?.summary?.soldQty ?? 0}
+                </div>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Total Units Sold</span>
+              </div>
+
+              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
+                <span className="text-[11px] text-neutral-400 font-medium">Total Products</span>
+                <div className="text-xl font-bold text-white font-mono mt-1">
+                  {inventoryAnalytics?.summary?.totalProducts ?? 0}
+                </div>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Active Catalog SKUs</span>
+              </div>
+            </div>
+
+            {/* FORMULA CALLOUT BANNER */}
+            <div className="mb-6 p-4 bg-neutral-950/80 border border-neutral-800 rounded-xl flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs bg-neutral-900 border border-neutral-700 text-neutral-300 px-2.5 py-1 rounded-md font-mono">
+                  📐 Sell Through Ratio = (Units sold / (units sold + current available)) x 100
+                </span>
+              </div>
+              <button
+                onClick={fetchInventoryAnalytics}
+                disabled={inventoryLoading}
+                className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white text-xs px-3 py-1.5 rounded-md font-medium transition"
+              >
+                {inventoryLoading ? '🔄 Syncing Catalog...' : '🔄 Refresh Catalog Data'}
+              </button>
+            </div>
+
+            {/* INVENTORY TABLE WITH 20-ROW PAGINATION */}
+            <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden shadow-xl">
+              <div className="p-4 border-b border-neutral-800 flex justify-between items-center">
+                <h3 className="font-semibold text-sm text-white">Product Type Performance &amp; Inventory Breakdown</h3>
+                <span className="text-xs text-neutral-400 font-mono">
+                  Showing 20 rows per page ({inventoryAnalytics?.rows?.length || 0} total types)
+                </span>
+              </div>
+
+              {inventoryLoading ? (
+                <div className="p-12 text-center text-neutral-400 font-mono text-xs">
+                  Loading catalog inventory data across connected stores...
+                </div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-neutral-900/60 text-neutral-400 font-semibold border-b border-neutral-800">
+                        <tr>
+                          <th className="p-3.5">Product Type</th>
+                          <th className="p-3.5 text-right">Total Products</th>
+                          <th className="p-3.5 text-right">AFS Products</th>
+                          <th className="p-3.5 text-right">AFS QTY</th>
+                          <th className="p-3.5 text-right">Sold QTY</th>
+                          <th className="p-3.5 text-right">Total QTY</th>
+                          <th className="p-3.5 text-right">Stock Value</th>
+                          <th className="p-3.5 text-right">Sell-Through %</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-neutral-900 font-mono">
+                        {(() => {
+                          const allRows = inventoryAnalytics?.rows || [];
+                          const totalPages = Math.ceil(allRows.length / rowsPerPage) || 1;
+                          const currentRows = allRows.slice((inventoryPage - 1) * rowsPerPage, inventoryPage * rowsPerPage);
+
+                          if (currentRows.length === 0) {
+                            return (
+                              <tr>
+                                <td colSpan={8} className="p-8 text-center text-neutral-500 font-sans text-xs">
+                                  No product categories found. Connect stores or run catalog refresh.
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return currentRows.map((row: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-neutral-900/40 transition">
+                              <td className="p-3.5 font-sans font-medium text-white">{row.productType}</td>
+                              <td className="p-3.5 text-right text-neutral-300">{row.totalProducts}</td>
+                              <td className="p-3.5 text-right text-emerald-400 font-semibold">{row.afsProducts}</td>
+                              <td className="p-3.5 text-right text-neutral-200">{row.afsQty}</td>
+                              <td className="p-3.5 text-right text-cyan-400">{row.soldQty}</td>
+                              <td className="p-3.5 text-right text-neutral-400">{row.totalQty}</td>
+                              <td className="p-3.5 text-right text-white font-semibold">${row.stockValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
+                              <td className="p-3.5 text-right">
+                                <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
+                                  row.sellThroughRatio > 50 ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :
+                                  row.sellThroughRatio > 20 ? 'bg-cyan-950 border border-cyan-800 text-cyan-300' :
+                                  'bg-neutral-900 border border-neutral-800 text-neutral-400'
+                                }`}>
+                                  {row.sellThroughRatio}%
+                                </span>
+                              </td>
+                            </tr>
+                          ));
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* PAGINATION CONTROLS (20 ROWS PER PAGE) */}
+                  <div className="p-4 border-t border-neutral-900 bg-neutral-950/60 flex items-center justify-between">
+                    <span className="text-xs text-neutral-400">
+                      Page <strong className="text-white">{inventoryPage}</strong> of{' '}
+                      <strong className="text-white">{Math.ceil((inventoryAnalytics?.rows?.length || 0) / rowsPerPage) || 1}</strong>
+                    </span>
+
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setInventoryPage(p => Math.max(1, p - 1))}
+                        disabled={inventoryPage === 1}
+                        className="px-3 py-1.5 text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-300 rounded hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      >
+                        ← Previous Page
+                      </button>
+                      <button
+                        onClick={() => setInventoryPage(p => Math.min(Math.ceil((inventoryAnalytics?.rows?.length || 0) / rowsPerPage) || 1, p + 1))}
+                        disabled={inventoryPage >= Math.ceil((inventoryAnalytics?.rows?.length || 0) / rowsPerPage)}
+                        className="px-3 py-1.5 text-xs font-medium bg-neutral-900 border border-neutral-800 text-neutral-300 rounded hover:bg-neutral-800 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                      >
+                        Next Page →
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TAB 2: ORDER SYNCS */}
         {activeTab === 'orders' && (
+
           <div className="bg-neutral-950 border border-neutral-800 rounded-xl overflow-hidden">
             <div className="p-4 border-b border-neutral-800 flex justify-between items-center flex-wrap gap-2">
               <div>
