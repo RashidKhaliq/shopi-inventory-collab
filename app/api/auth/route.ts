@@ -2,8 +2,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-let dynamicPassword = process.env.DASHBOARD_PASSWORD || 'abc12345';
-
 export async function GET(req: NextRequest) {
   return NextResponse.json({
     authRequired: true,
@@ -16,7 +14,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { password } = body || {};
 
-    const configuredPassword = process.env.DASHBOARD_PASSWORD || dynamicPassword;
+    const configuredPassword = db.getDashboardPassword();
 
     if (password === configuredPassword) {
       await db.addLog('INFO', '🔑 Admin Dashboard unlocked successfully.', 'auth');
@@ -38,7 +36,7 @@ export async function PUT(req: NextRequest) {
     const body = await req.json();
     const { currentPassword, newPassword } = body || {};
 
-    const configuredPassword = process.env.DASHBOARD_PASSWORD || dynamicPassword;
+    const configuredPassword = db.getDashboardPassword();
 
     if (currentPassword !== configuredPassword) {
       return NextResponse.json({ error: 'Current password does not match.' }, { status: 400 });
@@ -48,8 +46,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'New password must be at least 6 characters long.' }, { status: 400 });
     }
 
-    dynamicPassword = newPassword.trim();
-    process.env.DASHBOARD_PASSWORD = dynamicPassword;
+    const trimmedNew = newPassword.trim();
+    db.setDashboardPassword(trimmedNew);
+    process.env.DASHBOARD_PASSWORD = trimmedNew;
 
     await db.addLog('INFO', '🔒 Admin Dashboard password updated successfully.', 'auth');
 

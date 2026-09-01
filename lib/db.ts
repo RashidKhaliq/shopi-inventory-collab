@@ -68,7 +68,9 @@ class InMemoryDatabase {
   public processedWebhooks: Set<string> = new Set();
   public logs: MockSyncLog[] = [];
   public orderSyncs: MockOrderSync[] = [];
-  public inventorySyncMode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT' = 'MINUS_INVENTORY';
+  public inventorySyncMode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT' = 'DRAFT_PRODUCT';
+  public dashboardPassword?: string;
+  public inventorySummary?: any = null;
 
   constructor() {
     this.seedDefaultStores();
@@ -132,6 +134,12 @@ class InMemoryDatabase {
         if (data.inventorySyncMode === 'DRAFT_PRODUCT' || data.inventorySyncMode === 'MINUS_INVENTORY') {
           this.inventorySyncMode = data.inventorySyncMode;
         }
+        if (data.dashboardPassword) {
+          this.dashboardPassword = data.dashboardPassword;
+        }
+        if (data.inventorySummary) {
+          this.inventorySummary = data.inventorySummary;
+        }
       }
     } catch (e) {
       console.warn('Error reading db fallback storage from disk:', e);
@@ -146,7 +154,9 @@ class InMemoryDatabase {
         orderSyncs: this.orderSyncs,
         logs: this.logs,
         processedWebhooks: Array.from(this.processedWebhooks),
-        inventorySyncMode: this.inventorySyncMode
+        inventorySyncMode: this.inventorySyncMode,
+        dashboardPassword: this.dashboardPassword,
+        inventorySummary: this.inventorySummary
       };
       fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
     } catch (e) {
@@ -160,6 +170,24 @@ class InMemoryDatabase {
 
   public setInventorySyncMode(mode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT'): void {
     this.inventorySyncMode = mode;
+    this.saveToDisk();
+  }
+
+  public getDashboardPassword(): string {
+    return this.dashboardPassword || process.env.DASHBOARD_PASSWORD || 'abc12345';
+  }
+
+  public setDashboardPassword(newPassword: string): void {
+    this.dashboardPassword = newPassword;
+    this.saveToDisk();
+  }
+
+  public getInventorySummary(): any {
+    return this.inventorySummary || null;
+  }
+
+  public saveInventorySummary(summary: any): void {
+    this.inventorySummary = summary;
     this.saveToDisk();
   }
 

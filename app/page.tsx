@@ -14,10 +14,11 @@ export default function Dashboard() {
   const [inventoryAnalytics, setInventoryAnalytics] = useState<any>(null);
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [inventoryPage, setInventoryPage] = useState(1);
+  const [selectedStoreFilter, setSelectedStoreFilter] = useState<string>('all');
   const rowsPerPage = 20;
 
-  // Inventory Sync Mode Setting
-  const [inventorySyncMode, setInventorySyncMode] = useState<'MINUS_INVENTORY' | 'DRAFT_PRODUCT'>('MINUS_INVENTORY');
+  // Inventory Sync Mode Setting (Default to Draft Sold Product)
+  const [inventorySyncMode, setInventorySyncMode] = useState<'MINUS_INVENTORY' | 'DRAFT_PRODUCT'>('DRAFT_PRODUCT');
 
   // Authentication & Lock Screen States
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -75,10 +76,11 @@ export default function Dashboard() {
     }
   };
 
-  const fetchInventoryAnalytics = async () => {
+  const fetchInventoryAnalytics = async (storeDomain?: string) => {
     setInventoryLoading(true);
     try {
-      const res = await fetch('/api/inventory-analytics');
+      const targetDomain = storeDomain !== undefined ? storeDomain : selectedStoreFilter;
+      const res = await fetch(`/api/inventory-analytics?storeDomain=${encodeURIComponent(targetDomain)}`);
       const data = await res.json();
       setInventoryAnalytics(data);
     } catch (e) {
@@ -361,10 +363,6 @@ export default function Dashboard() {
               🔓 Unlock Admin Dashboard
             </button>
           </form>
-
-          <div className="mt-6 pt-4 border-t border-neutral-900 text-center text-[11px] text-neutral-500">
-            Default Password: <code className="text-neutral-300 bg-neutral-900 px-1.5 py-0.5 rounded font-mono">abc123456</code>
-          </div>
         </div>
       </div>
     );
@@ -656,8 +654,36 @@ export default function Dashboard() {
         {/* TAB: INVENTORY DASHBOARD */}
         {activeTab === 'inventory' && (
           <div>
-            {/* KPI SUMMARY CARDS */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+            {/* STORE FILTER HEADER */}
+            <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
+              <div>
+                <h2 className="text-base font-bold text-white">📊 Catalog &amp; Inventory Analytics</h2>
+                <p className="text-xs text-neutral-400">Read across all active, draft, and archived products.</p>
+              </div>
+
+              <div className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 px-3 py-2 rounded-xl">
+                <label className="text-xs text-neutral-300 font-medium">Filter Store:</label>
+                <select
+                  value={selectedStoreFilter}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSelectedStoreFilter(val);
+                    fetchInventoryAnalytics(val);
+                  }}
+                  className="bg-black border border-neutral-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none"
+                >
+                  <option value="all">All Connected Stores</option>
+                  {stores.map((s: any) => (
+                    <option key={s.shopDomain} value={s.shopDomain}>
+                      {s.name} ({s.supplierName || s.shopDomain})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* KPI SUMMARY CARDS (4 Cards: Stock Value, Sell-Through %, Sold Products, Total Products) */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
                 <span className="text-[11px] text-neutral-400 font-medium">Stock Value</span>
                 <div className="text-xl font-bold text-emerald-400 font-mono mt-1">
@@ -671,23 +697,15 @@ export default function Dashboard() {
                 <div className="text-xl font-bold text-white font-mono mt-1">
                   {inventoryAnalytics?.summary?.sellThroughRatio ?? 0}%
                 </div>
-                <span className="text-[10px] text-neutral-500 mt-0.5 block">Sold / Total Ratio</span>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Sold Products / Total Products</span>
               </div>
 
               <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
-                <span className="text-[11px] text-neutral-400 font-medium">AFS QTY</span>
-                <div className="text-xl font-bold text-white font-mono mt-1">
-                  {inventoryAnalytics?.summary?.afsQty ?? 0}
-                </div>
-                <span className="text-[10px] text-neutral-500 mt-0.5 block">Available for Sale</span>
-              </div>
-
-              <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
-                <span className="text-[11px] text-neutral-400 font-medium">Sold QTY</span>
+                <span className="text-[11px] text-neutral-400 font-medium">Sold Products</span>
                 <div className="text-xl font-bold text-cyan-400 font-mono mt-1">
-                  {inventoryAnalytics?.summary?.soldQty ?? 0}
+                  {inventoryAnalytics?.summary?.soldProducts ?? 0}
                 </div>
-                <span className="text-[10px] text-neutral-500 mt-0.5 block">Total Units Sold</span>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Zero-QTY Products (Active+Draft+Archived)</span>
               </div>
 
               <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-4">
@@ -695,7 +713,7 @@ export default function Dashboard() {
                 <div className="text-xl font-bold text-white font-mono mt-1">
                   {inventoryAnalytics?.summary?.totalProducts ?? 0}
                 </div>
-                <span className="text-[10px] text-neutral-500 mt-0.5 block">Active Catalog SKUs</span>
+                <span className="text-[10px] text-neutral-500 mt-0.5 block">Total Catalog (Active+Draft+Archived)</span>
               </div>
             </div>
 
@@ -703,11 +721,11 @@ export default function Dashboard() {
             <div className="mb-6 p-4 bg-neutral-950/80 border border-neutral-800 rounded-xl flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs bg-neutral-900 border border-neutral-700 text-neutral-300 px-2.5 py-1 rounded-md font-mono">
-                  📐 Sell Through Ratio = (Units sold / (units sold + current available)) x 100
+                  📐 Sell Through % = (Sold Products [Zero QTY] / Total Products [Active+Draft+Archived]) x 100
                 </span>
               </div>
               <button
-                onClick={fetchInventoryAnalytics}
+                onClick={() => fetchInventoryAnalytics(selectedStoreFilter)}
                 disabled={inventoryLoading}
                 className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white text-xs px-3 py-1.5 rounded-md font-medium transition"
               >
@@ -736,10 +754,7 @@ export default function Dashboard() {
                         <tr>
                           <th className="p-3.5">Product Type</th>
                           <th className="p-3.5 text-right">Total Products</th>
-                          <th className="p-3.5 text-right">AFS Products</th>
-                          <th className="p-3.5 text-right">AFS QTY</th>
-                          <th className="p-3.5 text-right">Sold QTY</th>
-                          <th className="p-3.5 text-right">Total QTY</th>
+                          <th className="p-3.5 text-right">Sold Products (0 QTY)</th>
                           <th className="p-3.5 text-right">Stock Value</th>
                           <th className="p-3.5 text-right">Sell-Through %</th>
                         </tr>
@@ -753,7 +768,7 @@ export default function Dashboard() {
                           if (currentRows.length === 0) {
                             return (
                               <tr>
-                                <td colSpan={8} className="p-8 text-center text-neutral-500 font-sans text-xs">
+                                <td colSpan={5} className="p-8 text-center text-neutral-500 font-sans text-xs">
                                   No product categories found. Connect stores or run catalog refresh.
                                 </td>
                               </tr>
@@ -764,10 +779,7 @@ export default function Dashboard() {
                             <tr key={idx} className="hover:bg-neutral-900/40 transition">
                               <td className="p-3.5 font-sans font-medium text-white">{row.productType}</td>
                               <td className="p-3.5 text-right text-neutral-300">{row.totalProducts}</td>
-                              <td className="p-3.5 text-right text-emerald-400 font-semibold">{row.afsProducts}</td>
-                              <td className="p-3.5 text-right text-neutral-200">{row.afsQty}</td>
-                              <td className="p-3.5 text-right text-cyan-400">{row.soldQty}</td>
-                              <td className="p-3.5 text-right text-neutral-400">{row.totalQty}</td>
+                              <td className="p-3.5 text-right text-cyan-400 font-semibold">{row.soldProducts}</td>
                               <td className="p-3.5 text-right text-white font-semibold">${row.stockValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}</td>
                               <td className="p-3.5 text-right">
                                 <span className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${row.sellThroughRatio > 50 ? 'bg-emerald-950 border border-emerald-800 text-emerald-300' :

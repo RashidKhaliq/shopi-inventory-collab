@@ -7,101 +7,99 @@ import axios from 'axios';
 interface ProductTypeMetrics {
   productType: string;
   totalProducts: number;
-  afsProducts: number;
-  afsQty: number;
-  soldQty: number;
-  totalQty: number;
+  soldProducts: number;
   stockValue: number;
-  sellThroughRatio: number; // (soldQty / (soldQty + afsQty)) * 100
+  sellThroughRatio: number;
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const stores = await db.getAllStores();
-    const orderSyncs = await db.getOrderSyncs(500);
+    const { searchParams } = new URL(req.url);
+    const filterStoreDomain = searchParams.get('storeDomain') || searchParams.get('store');
 
-    const typeMap: Map<string, {
-      totalProducts: Set<string>;
-      afsProducts: Set<string>;
-      afsQty: number;
-      soldQty: number;
-      totalValue: number;
-    }> = new Map();
+    const allStores = await db.getAllStores();
 
-    // Map sold quantities from Order Sync History
-    const skuSoldMap: Map<string, number> = new Map();
-    for (const sync of orderSyncs) {
-      if (sync.status === 'SUCCESS' && sync.skus) {
-        // e.g. "shirt-01 (x2), pant-02 (x1)"
-        const parts = sync.skus.split(',');
-        for (const part of parts) {
-          const match = part.trim().match(/^(.+?)\s*\(\s*x(\d+)\s*\)$/i);
-          if (match) {
-            const sku = match[1].trim().toLowerCase();
-            const qty = parseInt(match[2], 10) || 1;
-            skuSoldMap.set(sku, (skuSoldMap.get(sku) || 0) + qty);
-          }
-        }
-      }
+    // Filter stores if storeDomain query param is passed and not "all"
+    let targetStores = allStores;
+    if (filterStoreDomain && filterStoreDomain !== 'all') {
+      const cleanFilter = cleanShopDomain(filterStoreDomain);
+      targetStores = allStores.filter(s => cleanShopDomain(s.shopDomain) === cleanFilter);
     }
 
-    // Fetch products across connected stores
-    for (const store of stores) {
+    const typeMap: Map<string, {
+      totalProducts: number;
+      soldProducts: number;
+      stockValue: number;
+    }> = new Map();
+
+    let grandTotalProducts = 0;
+    let grandSoldProducts = 0;
+    let grandStockValue = 0;
+
+    // Fetch active, draft, and archived products across connected stores
+    for (const store of targetStores) {
       if (!store.isActive || !store.accessToken) continue;
       const domain = cleanShopDomain(store.shopDomain);
 
       try {
-        const res = await axios.get(`https://${domain}/admin/api/2024-01/products.json?limit=250`, {
-          headers: { 'X-Shopify-Access-Token': store.accessToken },
-          timeout: 10000
-        });
+        let products: any[] = [];
+        let url: string | null = `https://${domain}/admin/api/2024-01/products.json?limit=250&status=any`;
 
-        const products = res.data?.products || [];
+        // Paginate to fetch 100% of products (active, draft, archived)
+        while (url) {
+          const res: any = await axios.get(url, {
+            headers: { 'X-Shopify-Access-Token': store.accessToken },
+            timeout: 12000
+          });
+
+          const batch = res.data?.products || [];
+          products.push(...batch);
+
+          const linkHeader = res.headers['link'] || res.headers['Link'];
+          let nextUrl: string | null = null;
+          if (linkHeader) {
+            const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/i);
+            if (match) nextUrl = match[1];
+          }
+          url = nextUrl;
+        }
 
         for (const p of products) {
           const pType = (p.product_type && p.product_type.trim()) ? p.product_type.trim() : 'General / Apparel';
-          const pId = String(p.id);
 
           if (!typeMap.has(pType)) {
             typeMap.set(pType, {
-              totalProducts: new Set(),
-              afsProducts: new Set(),
-              afsQty: 0,
-              soldQty: 0,
-              totalValue: 0
+              totalProducts: 0,
+              soldProducts: 0,
+              stockValue: 0
             });
           }
 
           const group = typeMap.get(pType)!;
-          group.totalProducts.add(pId);
+          group.totalProducts++;
+          grandTotalProducts++;
 
-          let productAvailable = 0;
-          let productPriceSum = 0;
-          let variantCount = 0;
+          let productAvailableQty = 0;
+          let productStockValue = 0;
 
           if (Array.isArray(p.variants)) {
             for (const v of p.variants) {
               const qty = v.inventory_quantity || 0;
               const price = parseFloat(v.price || '0') || 0;
-              productAvailable += Math.max(0, qty);
-              productPriceSum += price;
-              variantCount++;
-
-              if (v.sku) {
-                const cleanSku = v.sku.trim().toLowerCase();
-                if (skuSoldMap.has(cleanSku)) {
-                  group.soldQty += skuSoldMap.get(cleanSku)!;
-                }
+              if (qty > 0) {
+                productAvailableQty += qty;
+                productStockValue += (qty * price);
               }
             }
           }
 
-          group.afsQty += productAvailable;
-          const avgPrice = variantCount > 0 ? (productPriceSum / variantCount) : 0;
-          group.totalValue += (productAvailable * avgPrice);
+          group.stockValue += productStockValue;
+          grandStockValue += productStockValue;
 
-          if (productAvailable > 0 && p.status === 'active') {
-            group.afsProducts.add(pId);
+          // Product with 0 inventory = Sold Product (active + draft + archived)
+          if (productAvailableQty <= 0) {
+            group.soldProducts++;
+            grandSoldProducts++;
           }
         }
       } catch (err: any) {
@@ -109,66 +107,48 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Convert map to metrics array
     const rows: ProductTypeMetrics[] = [];
-    let grandAfsQty = 0;
-    let grandSoldQty = 0;
-    let grandStockValue = 0;
-    let grandTotalProducts = 0;
-    let grandAfsProducts = 0;
-
     for (const [pType, group] of typeMap.entries()) {
-      const totalProds = group.totalProducts.size;
-      const afsProds = group.afsProducts.size;
-      const afsQty = group.afsQty;
-      const soldQty = group.soldQty;
-      const totalQty = afsQty + soldQty;
-      const stockVal = Math.round(group.totalValue * 100) / 100;
-
-      // Formula: Sell-Through % = (Sold Qty / (Sold Qty + AFS Qty)) * 100
-      const sellThroughRatio = totalQty > 0
-        ? Math.round((soldQty / totalQty) * 1000) / 10
+      const sellThroughRatio = group.totalProducts > 0
+        ? Math.round((group.soldProducts / group.totalProducts) * 1000) / 10
         : 0;
 
       rows.push({
         productType: pType,
-        totalProducts: totalProds,
-        afsProducts: afsProds,
-        afsQty,
-        soldQty,
-        totalQty,
-        stockValue: stockVal,
+        totalProducts: group.totalProducts,
+        soldProducts: group.soldProducts,
+        stockValue: Math.round(group.stockValue * 100) / 100,
         sellThroughRatio
       });
-
-      grandAfsQty += afsQty;
-      grandSoldQty += soldQty;
-      grandStockValue += stockVal;
-      grandTotalProducts += totalProds;
-      grandAfsProducts += afsProds;
     }
 
-    // Sort by Total Products descending
     rows.sort((a, b) => b.totalProducts - a.totalProducts);
 
-    const grandTotalQty = grandAfsQty + grandSoldQty;
-    const grandSellThroughRatio = grandTotalQty > 0
-      ? Math.round((grandSoldQty / grandTotalQty) * 1000) / 10
+    const grandSellThroughRatio = grandTotalProducts > 0
+      ? Math.round((grandSoldProducts / grandTotalProducts) * 1000) / 10
       : 0;
 
+    const summaryPayload = {
+      totalProducts: grandTotalProducts,
+      soldProducts: grandSoldProducts,
+      stockValue: Math.round(grandStockValue * 100) / 100,
+      sellThroughRatio: grandSellThroughRatio,
+      selectedStoreDomain: filterStoreDomain || 'all'
+    };
+
+    // Save summary in database persistently
+    await db.saveInventorySummary(summaryPayload);
+
     return NextResponse.json({
-      summary: {
-        totalProducts: grandTotalProducts,
-        afsProducts: grandAfsProducts,
-        afsQty: grandAfsQty,
-        soldQty: grandSoldQty,
-        totalQty: grandTotalQty,
-        stockValue: Math.round(grandStockValue * 100) / 100,
-        sellThroughRatio: grandSellThroughRatio
-      },
-      rows
+      summary: summaryPayload,
+      rows,
+      stores: allStores.map(s => ({ shopDomain: s.shopDomain, name: s.name, supplierName: s.supplierName }))
     });
   } catch (err: any) {
+    const cached = db.getInventorySummary();
+    if (cached) {
+      return NextResponse.json({ summary: cached, rows: [], stores: [] });
+    }
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
