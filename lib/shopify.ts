@@ -220,7 +220,7 @@ export async function findVariantIdBySku(
   shopDomain: string,
   accessToken: string,
   sku: string
-): Promise<{ variantId: string; inventoryItemId?: string; availableQuantity?: number } | null> {
+): Promise<{ variantId: string; productId?: string; inventoryItemId?: string; availableQuantity?: number } | null> {
   const cleanSku = sku.trim();
   if (!cleanSku) return null;
   const domain = cleanShopDomain(shopDomain);
@@ -235,6 +235,9 @@ export async function findVariantIdBySku(
             sku
             inventoryQuantity
             inventoryItem {
+              id
+            }
+            product {
               id
             }
           }
@@ -258,8 +261,10 @@ export async function findVariantIdBySku(
       if (edge.node?.sku && edge.node.sku.trim().toLowerCase() === cleanSku.toLowerCase()) {
         const gid = edge.node.id;
         const invGid = edge.node.inventoryItem?.id;
+        const prodGid = edge.node.product?.id;
         return {
           variantId: gid ? gid.split('/').pop()! : '',
+          productId: prodGid ? prodGid.split('/').pop() : undefined,
           inventoryItemId: invGid ? invGid.split('/').pop() : undefined,
           availableQuantity: edge.node.inventoryQuantity ?? undefined
         };
@@ -282,6 +287,7 @@ export async function findVariantIdBySku(
         if (v.sku && v.sku.trim().toLowerCase() === cleanSku.toLowerCase()) {
           return {
             variantId: String(v.id),
+            productId: String(prod.id),
             inventoryItemId: String(v.inventory_item_id),
             availableQuantity: v.inventory_quantity
           };
@@ -644,17 +650,15 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
       shopDomain
     );
 
-    let supplierStore = supplierName ? await db.getStoreBySupplierName(supplierName) : null;
-
-    // Default Fallback: If no explicit supplier tag/metafield matched another store,
-    // the product sold on shopDomain belongs to shopDomain itself (Self Sale)!
-    if (!supplierStore) {
-      supplierStore = sourceStore || {
+    const supplierStore =
+      (supplierName ? await db.getStoreBySupplierName(supplierName) : null) ||
+      sourceStore || {
         shopDomain,
         name: shopDomain,
         supplierName: shopDomain.split('.')[0]
       };
-    }
+
+    if (!supplierStore || !supplierStore.shopDomain) continue;
 
     if (supplierStore.shopDomain === shopDomain) {
       // Scenario 2: Store A sells its own product

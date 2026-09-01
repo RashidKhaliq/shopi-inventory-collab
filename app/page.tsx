@@ -652,6 +652,7 @@ export default function Dashboard() {
                 </div>
               </form>
             </div>
+            </div>
           </div>
         )}
 
