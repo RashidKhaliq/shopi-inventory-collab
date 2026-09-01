@@ -63,45 +63,49 @@ export interface ParsedOrder {
   lineItems: LineItemInfo[];
 }
 
-// Extract supplier name from Product tags ("Supplier: Hamza"), custom.supplier metafield, or line item vendor
+// Extract supplier name from custom.supplier metafield, Supplier: Name tags, or line item vendor
 export function extractSupplierName(tags?: string | null, metafield?: string | null, vendor?: string | null): string | null {
-  if (metafield && metafield.trim() !== '') {
+  // 1. Primary Identifier: custom.supplier metafield
+  if (metafield && typeof metafield === 'string' && metafield.trim() !== '') {
     return metafield.trim();
   }
 
-  if (tags && tags.trim() !== '') {
+  // 2. Secondary Identifier: Supplier: <Name> tag (case-insensitive)
+  if (tags && typeof tags === 'string' && tags.trim() !== '') {
     const tagList = tags.split(',').map(t => t.trim());
     for (const tag of tagList) {
-      // 1. Tag format: "Supplier: Rashid" or "Supplier: Store A" or "Supplier_Rashid"
       const match = tag.match(/^(?:Supplier|supplier)[:_\s]+(.+)$/i);
       if (match && match[1]) {
         return match[1].trim();
       }
     }
-
-    // 2. Direct tag check if tag doesn't have "Supplier:" prefix (e.g. tag is "Rashid" or "Store A")
-    for (const tag of tagList) {
-      if (tag && tag.length > 1 && !tag.toLowerCase().startsWith('automated')) {
-        return tag.trim();
-      }
-    }
   }
 
-  // 3. Fallback to line item vendor if provided
-  if (vendor && vendor.trim() !== '') {
+  // 3. Fallback: Line item vendor matching Supplier: <Name>
+  if (vendor && typeof vendor === 'string' && vendor.trim() !== '') {
     const cleanVendor = vendor.trim();
     const vendorMatch = cleanVendor.match(/^(?:Supplier|supplier)[:_\s]+(.+)$/i);
-    return vendorMatch ? vendorMatch[1].trim() : cleanVendor;
+    if (vendorMatch && vendorMatch[1]) {
+      return vendorMatch[1].trim();
+    }
   }
 
   return null;
 }
 
-// Fetch Product details via REST API if GraphQL order line items missing tags
-export async function getProductDetailsREST(shopDomain: string, accessToken: string, productId: string): Promise<{ tags: string; vendor: string; supplierMetafield: string | null }> {
+// Fetch Product details & custom.supplier Metafield via REST API
+export async function getProductDetailsREST(
+  shopDomain: string,
+  accessToken: string,
+  productId: string
+): Promise<{ tags: string; vendor: string; supplierMetafield: string | null }> {
   const domain = cleanShopDomain(shopDomain);
   const cleanId = productId.replace(/^gid:\/\/shopify\/Product\//, '');
   if (!cleanId) return { tags: '', vendor: '', supplierMetafield: null };
+
+  let tags = '';
+  let vendor = '';
+  let supplierMetafield: string | null = null;
 
   try {
     const res = await axios.get(`https://${domain}/admin/api/2024-01/products/${cleanId}.json`, {
@@ -110,16 +114,33 @@ export async function getProductDetailsREST(shopDomain: string, accessToken: str
     });
 
     const product = res.data?.product;
-    if (!product) return { tags: '', vendor: '', supplierMetafield: null };
-
-    return {
-      tags: Array.isArray(product.tags) ? product.tags.join(', ') : (product.tags || ''),
-      vendor: product.vendor || '',
-      supplierMetafield: null
-    };
+    if (product) {
+      tags = Array.isArray(product.tags) ? product.tags.join(', ') : (product.tags || '');
+      vendor = product.vendor || '';
+    }
   } catch (err: any) {
-    return { tags: '', vendor: '', supplierMetafield: null };
+    // Ignore REST product lookup error
   }
+
+  // Fetch product metafields for custom.supplier
+  try {
+    const metaRes = await axios.get(`https://${domain}/admin/api/2024-01/products/${cleanId}/metafields.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken },
+      timeout: 8000
+    });
+
+    const metafields = metaRes.data?.metafields || [];
+    const found = metafields.find((m: any) =>
+      (m.namespace === 'custom' && m.key === 'supplier') || m.key === 'supplier'
+    );
+    if (found && found.value) {
+      supplierMetafield = String(found.value).trim();
+    }
+  } catch (err: any) {
+    // Ignore REST metafield error
+  }
+
+  return { tags, vendor, supplierMetafield };
 }
 
 // Fetch Full Order details using Shopify Admin GraphQL API
@@ -195,7 +216,11 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
 }
 
 // Find Variant ID by SKU using GraphQL with REST Fallback
-export async function findVariantIdBySku(shopDomain: string, accessToken: string, sku: string): Promise<{ variantId: string; inventoryItemId?: string } | null> {
+export async function findVariantIdBySku(
+  shopDomain: string,
+  accessToken: string,
+  sku: string
+): Promise<{ variantId: string; inventoryItemId?: string; availableQuantity?: number } | null> {
   const cleanSku = sku.trim();
   if (!cleanSku) return null;
   const domain = cleanShopDomain(shopDomain);
@@ -208,6 +233,7 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
           node {
             id
             sku
+            inventoryQuantity
             inventoryItem {
               id
             }
@@ -234,7 +260,8 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
         const invGid = edge.node.inventoryItem?.id;
         return {
           variantId: gid ? gid.split('/').pop()! : '',
-          inventoryItemId: invGid ? invGid.split('/').pop() : undefined
+          inventoryItemId: invGid ? invGid.split('/').pop() : undefined,
+          availableQuantity: edge.node.inventoryQuantity ?? undefined
         };
       }
     }
@@ -255,7 +282,8 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
         if (v.sku && v.sku.trim().toLowerCase() === cleanSku.toLowerCase()) {
           return {
             variantId: String(v.id),
-            inventoryItemId: String(v.inventory_item_id)
+            inventoryItemId: String(v.inventory_item_id),
+            availableQuantity: v.inventory_quantity
           };
         }
       }
@@ -267,10 +295,10 @@ export async function findVariantIdBySku(shopDomain: string, accessToken: string
   return null;
 }
 
-// Create B2B Supplier Order on Target Connected Store
+// Create B2B Supplier Order on Target Connected Store (Store B sells Store A's product)
 export async function createSupplierFulfillmentOrder(
   supplierStore: { shopDomain: string; accessToken: string; ownerEmail: string; name: string },
-  retailerStore: { shopDomain: string; name: string; supplierName: string },
+  retailerStore: { shopDomain: string; name: string; supplierName: string; ownerEmail?: string },
   items: { sku: string; quantity: number }[],
   sourceOrderName: string
 ): Promise<{ success: boolean; orderId?: string; orderName?: string; error?: string }> {
@@ -297,18 +325,27 @@ export async function createSupplierFulfillmentOrder(
     };
   }
 
-  const recipientEmail = supplierStore.ownerEmail && supplierStore.ownerEmail.includes('@')
-    ? supplierStore.ownerEmail
-    : 'orders@dropship-sync.com';
+  // Set order customer email & name to Seller Store details (Store B)
+  const sellerEmail = retailerStore.ownerEmail && retailerStore.ownerEmail.includes('@')
+    ? retailerStore.ownerEmail
+    : 'seller@dropship-sync.com';
+
+  const sellerStoreName = retailerStore.name || `Store ${retailerStore.supplierName}`;
 
   const orderPayload = {
     order: {
       line_items: lineItemsPayload,
-      email: recipientEmail,
-      tags: `Automated Dropship, Soldby-${retailerStore.supplierName}`,
+      customer: {
+        first_name: sellerStoreName,
+        last_name: "(Seller Store)",
+        email: sellerEmail
+      },
+      email: sellerEmail,
+      source_name: "Dropshipping",
+      tags: `Automated Dropship, Dropshipping, Soldby-${retailerStore.supplierName || sellerStoreName}`,
       financial_status: "pending",
       inventory_behaviour: "decrement_obeying_policy",
-      note: `Auto-generated B2B order for items sold in order ${sourceOrderName} on ${retailerStore.name}`
+      note: `Dropshipping order placed by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}.`
     }
   };
 
@@ -320,7 +357,12 @@ export async function createSupplierFulfillmentOrder(
 
     const newOrder = res.data?.order;
     const orderName = newOrder?.name || `#${newOrder?.order_number}`;
-    await db.addLog('INFO', `🎉 Successfully created supplier order ${orderName} on ${supplierStore.name} for source order ${sourceOrderName}`, 'order_creation', supplierStore.shopDomain);
+    await db.addLog(
+      'INFO',
+      `🎉 Successfully created B2B Dropshipping Order ${orderName} on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
+      'order_creation',
+      supplierStore.shopDomain
+    );
 
     return {
       success: true,
@@ -337,17 +379,35 @@ export async function createSupplierFulfillmentOrder(
   }
 }
 
-// Synchronize Inventory Quantities for Matching SKUs across stores
+// Synchronize Inventory Quantities for Matching SKUs across connected stores (> 2 stores)
 export async function syncInventoryAcrossStores(
   sourceShopDomain: string,
   sku: string,
-  newQuantity: number
+  targetQuantity?: number
 ): Promise<void> {
   const stores = await db.getAllStores();
   const cleanSource = cleanShopDomain(sourceShopDomain);
 
+  // Determine updated available quantity from source store if not explicitly passed
+  let newQuantity = targetQuantity;
+
+  if (newQuantity === undefined) {
+    const sourceStore = stores.find(s => cleanShopDomain(s.shopDomain) === cleanSource);
+    if (sourceStore && sourceStore.accessToken) {
+      const sourceVariant = await findVariantIdBySku(sourceStore.shopDomain, sourceStore.accessToken, sku);
+      if (sourceVariant && sourceVariant.availableQuantity !== undefined) {
+        newQuantity = sourceVariant.availableQuantity;
+      }
+    }
+  }
+
+  if (newQuantity === undefined) {
+    newQuantity = 0; // default safe fallback
+  }
+
+  // If connected stores > 2 (or all connected stores), push updated inventory to all other connected stores
   for (const store of stores) {
-    if (store.shopDomain === cleanSource || !store.isActive) continue;
+    if (cleanShopDomain(store.shopDomain) === cleanSource || !store.isActive) continue;
 
     const variant = await findVariantIdBySku(store.shopDomain, store.accessToken, sku);
     if (variant && variant.inventoryItemId) {
@@ -394,3 +454,190 @@ export async function syncInventoryAcrossStores(
     }
   }
 }
+
+// Process Order Created Webhook Event
+export async function processOrderCreatedWebhook(order: any, shopDomain: string, sourceStore: any) {
+  const orderName = order.name || `OTS-${order.order_number || order.id}`;
+  const orderIdStr = String(order.id || '');
+
+  if (orderIdStr && orderIdStr !== 'N/A') {
+    const alreadySynced = await db.hasOrderBeenSynced(shopDomain, orderIdStr);
+    if (alreadySynced) {
+      await db.addLog('INFO', `Order ${orderName} (${orderIdStr}) on ${shopDomain} already present in Order History. Skipping duplicate.`, 'orders/create', shopDomain);
+      return;
+    }
+  }
+
+  await db.addLog('INFO', `📦 Webhook Received: Order ${orderName} created on ${shopDomain}`, 'orders/create', shopDomain);
+
+  // 🛑 Loop Protection Check
+  const orderTags = Array.isArray(order.tags) ? order.tags.join(', ') : (order.tags || '');
+  if (orderTags.toLowerCase().includes('automated dropship') || orderTags.toLowerCase().includes('soldby-')) {
+    await db.addLog('INFO', `🛑 Loop Protection: Order ${orderName} has 'Automated Dropship' or 'Soldby-' tag. Skipping.`, 'orders/create', shopDomain);
+    return;
+  }
+
+  const retailerStore = sourceStore || {
+    shopDomain,
+    name: shopDomain,
+    supplierName: shopDomain.split('.')[0],
+    ownerEmail: 'retailer@dropship-sync.com'
+  };
+
+  // Fetch complete order details using GraphQL API
+  const parsedOrder = sourceStore?.accessToken
+    ? await getOrderDetailsGraphQL(shopDomain, sourceStore.accessToken, String(order.id))
+    : null;
+
+  let lineItems: any[] = parsedOrder?.lineItems || [];
+
+  if (lineItems.length === 0 && Array.isArray(order.line_items)) {
+    lineItems = order.line_items.map((li: any) => ({
+      id: String(li.id),
+      title: li.title,
+      sku: li.sku ? li.sku.trim() : '',
+      quantity: li.quantity || 1,
+      productId: String(li.product_id || ''),
+      productTags: '',
+      customSupplierMetafield: null,
+      vendor: li.vendor || ''
+    }));
+  }
+
+  // Maps for cross-store dropshipping and self-sales
+  const supplierItemsMap: Map<string, { sku: string; quantity: number }[]> = new Map();
+  const selfSaleItems: { sku: string; quantity: number }[] = [];
+  const processedSkus: string[] = [];
+
+  for (const item of lineItems) {
+    if (!item.sku) {
+      await db.addLog('WARN', `Item '${item.title}' in order ${orderName} has no SKU. Skipping.`, 'orders/create', shopDomain);
+      continue;
+    }
+
+    processedSkus.push(`${item.sku} (x${item.quantity})`);
+
+    let tags = item.productTags;
+    let vendor = item.vendor;
+    let metafield = item.customSupplierMetafield;
+
+    // Fallback: If tags or metafield missing, fetch via REST API
+    if ((!tags || !metafield) && sourceStore?.accessToken && item.productId) {
+      const restProduct = await getProductDetailsREST(shopDomain, sourceStore.accessToken, item.productId);
+      if (restProduct.tags) tags = restProduct.tags;
+      if (restProduct.vendor) vendor = restProduct.vendor;
+      if (restProduct.supplierMetafield) metafield = restProduct.supplierMetafield;
+    }
+
+    const supplierName = extractSupplierName(tags, metafield, vendor);
+    await db.addLog(
+      'INFO',
+      `Line item SKU '${item.sku}' (Qty: ${item.quantity}) -> Resolved Ownership (custom.supplier / Tag): "${supplierName || 'None'}"`,
+      'orders/create',
+      shopDomain
+    );
+
+    let supplierStore = supplierName ? await db.getStoreBySupplierName(supplierName) : null;
+
+    if (supplierStore) {
+      if (supplierStore.shopDomain === shopDomain) {
+        // Scenario 2: Store A sells its own product
+        await db.addLog(
+          'INFO',
+          `✓ Store A (${shopDomain}) sells its own product (SKU '${item.sku}', Supplier: ${supplierStore.supplierName}). No dropshipping order required.`,
+          'orders/create',
+          shopDomain
+        );
+        selfSaleItems.push({ sku: item.sku, quantity: item.quantity });
+      } else {
+        // Scenario 1: Store B sells Store A's product
+        if (!supplierItemsMap.has(supplierStore.shopDomain)) {
+          supplierItemsMap.set(supplierStore.shopDomain, []);
+        }
+        supplierItemsMap.get(supplierStore.shopDomain)!.push({
+          sku: item.sku,
+          quantity: item.quantity
+        });
+      }
+    } else {
+      await db.addLog(
+        'WARN',
+        `No connected store matched supplier identifier "${supplierName || 'None'}" for SKU '${item.sku}'`,
+        'orders/create',
+        shopDomain
+      );
+    }
+  }
+
+  // Handle Scenario 2: Self-Sales Inventory Sync & Order History Logging
+  if (selfSaleItems.length > 0) {
+    for (const item of selfSaleItems) {
+      // Sync/deduct inventory across all other connected stores
+      await syncInventoryAcrossStores(shopDomain, item.sku);
+    }
+
+    const selfSkusStr = selfSaleItems.map(i => `${i.sku} (x${i.quantity})`).join(', ');
+
+    await db.recordOrderSync({
+      sourceShopDomain: shopDomain,
+      targetShopDomain: shopDomain,
+      sourceOrderId: String(order.id || 'N/A'),
+      sourceOrderName: orderName,
+      targetOrderId: String(order.id || 'N/A'),
+      targetOrderName: orderName,
+      status: 'SUCCESS',
+      skus: selfSkusStr,
+      error: `Self-sale by ${retailerStore.name} (Tag: Soldby-${retailerStore.supplierName}). Inventory deducted across all connected stores.`
+    });
+  }
+
+  // Handle Scenario 1: Cross-Store Dropshipping Orders
+  for (const [targetShopDomain, items] of supplierItemsMap.entries()) {
+    const targetStore = await db.getStoreByDomain(targetShopDomain);
+    if (!targetStore) continue;
+
+    await db.addLog(
+      'INFO',
+      `🚀 Creating B2B Dropshipping Order on ${targetStore.name} for ${items.length} item(s)...`,
+      'orders/create',
+      shopDomain
+    );
+
+    const result = await createSupplierFulfillmentOrder(targetStore, retailerStore, items, orderName);
+    const skuListStr = items.map(i => `${i.sku} (x${i.quantity})`).join(', ');
+
+    await db.recordOrderSync({
+      sourceShopDomain: shopDomain,
+      targetShopDomain,
+      sourceOrderId: String(order.id),
+      sourceOrderName: orderName,
+      targetOrderId: result.orderId || null,
+      targetOrderName: result.orderName || null,
+      status: result.success ? 'SUCCESS' : 'FAILED',
+      skus: skuListStr,
+      error: result.error || null
+    });
+
+    // Auto-sync inventory across all connected stores if total stores > 2
+    for (const item of items) {
+      await syncInventoryAcrossStores(targetStore.shopDomain, item.sku);
+    }
+  }
+
+  // If no items matched any rules, log as SKIPPED so every attempt appears in history
+  if (selfSaleItems.length === 0 && supplierItemsMap.size === 0) {
+    await db.recordOrderSync({
+      sourceShopDomain: shopDomain,
+      targetShopDomain: 'N/A',
+      sourceOrderId: String(order.id || 'N/A'),
+      sourceOrderName: orderName,
+      targetOrderId: null,
+      targetOrderName: null,
+      status: 'SKIPPED',
+      skus: processedSkus.join(', ') || 'No SKUs',
+      error: 'No matching supplier identifier or SKUs configured for dropshipping sync.'
+    });
+  }
+}
+
+

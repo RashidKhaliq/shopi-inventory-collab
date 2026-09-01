@@ -391,8 +391,8 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
 
   // 🛑 LOOP PROTECTION: Check for automated dropship tag
   const orderTags = (order?.tags || '').toLowerCase();
-  if (orderTags.includes('automated dropship')) {
-    log('INFO', `🛑 Loop Protection: Order ${orderName} has 'Automated Dropship' tag. Skipping to prevent loop.`);
+  if (orderTags.includes('automated dropship') || orderTags.includes('soldby-')) {
+    log('INFO', `🛑 Loop Protection: Order ${orderName} has 'Automated Dropship' or 'Soldby-' tag. Skipping to prevent loop.`);
     return;
   }
 
@@ -400,6 +400,7 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
   log('INFO', `Order ${orderName} contains ${lineItems.length} line item(s).`);
 
   const itemsToDropship = [];
+  const processedSkus = [];
 
   for (const item of lineItems) {
     const sku = item.sku ? item.sku.trim() : '';
@@ -408,49 +409,74 @@ async function processDropship(order, sourceStore, targetStore, targetSupplierTa
       continue;
     }
 
+    processedSkus.push(`${sku} (x${item.quantity || 1})`);
     log('INFO', `Inspecting line item SKU: '${sku}' (Product ID: ${item.product_id})...`);
 
-    // Fetch tags from source store to see if this product belongs to supplier
-    const tagsString = await getProductTags(sourceStore, item.product_id);
-    log('INFO', `Product ${item.product_id} tags on ${sourceStore.name}: "${tagsString}"`);
+    // Fetch tags & metafields from source store to see if this product belongs to supplier
+    const productInfo = await getProductDetails(sourceStore, item.product_id);
+    const tagsString = productInfo.tags;
+    const metafieldVal = productInfo.metafield;
+    log('INFO', `Product ${item.product_id} tags: "${tagsString}", custom.supplier metafield: "${metafieldVal || 'None'}"`);
 
-    const isMatch = hasSupplierTag(tagsString, targetSupplierTag);
+    const isMatch = checkOwnershipMatch(metafieldVal, tagsString, targetSupplierTag);
     if (isMatch) {
-      log('INFO', `✓ TAG MATCHED: Item SKU '${sku}' has tag matching '${targetSupplierTag}'!`);
+      log('INFO', `✓ SUPPLIER MATCH: Item SKU '${sku}' belongs to target supplier tag '${targetSupplierTag}'!`);
       itemsToDropship.push({
         sku: sku,
         quantity: item.quantity || 1,
         title: item.title
       });
     } else {
-      log('INFO', `✕ NO TAG MATCH: Item SKU '${sku}' tags ("${tagsString}") do not match target supplier tag '${targetSupplierTag}'.`);
+      log('INFO', `ℹ️ Item SKU '${sku}' does not match target supplier tag '${targetSupplierTag}'.`);
     }
   }
 
   if (itemsToDropship.length > 0) {
-    log('INFO', `🚀 Found ${itemsToDropship.length} item(s) to dropship to ${targetStore.name}. Creating order...`);
-    await createOrderOnSupplierStore(targetStore, sourceStore, itemsToDropship, orderName);
+    log('INFO', `🚀 Found ${itemsToDropship.length} item(s) to dropship to ${targetStore.name}. Creating B2B order...`);
+    await createOrderOnSupplierStore(targetStore, sourceStore, itemsToDropship, orderName, processedSkus);
   } else {
-    log('INFO', `ℹ️ No dropship items with tag '${targetSupplierTag}' found in order ${orderName}. Nothing to sync.`);
+    log('INFO', `ℹ️ No dropship items matching '${targetSupplierTag}' found in order ${orderName}. Nothing to sync.`);
   }
 }
 
-async function getProductTags(store, productId) {
-  if (!productId) return '';
+function checkOwnershipMatch(metafield, tags, targetSupplierTag) {
+  if (metafield && typeof metafield === 'string' && metafield.trim() !== '') {
+    const cleanMeta = metafield.trim().toLowerCase();
+    const cleanTarget = targetSupplierTag.replace(/^(?:Supplier|supplier)[:_\s]+/i, '').trim().toLowerCase();
+    if (cleanMeta === cleanTarget || targetSupplierTag.toLowerCase().includes(cleanMeta)) return true;
+  }
+  return hasSupplierTag(tags, targetSupplierTag);
+}
+
+async function getProductDetails(store, productId) {
+  if (!productId) return { tags: '', metafield: null };
+  const domain = cleanDomain(store.url);
+
+  let tags = '';
+  let metafield = null;
+
   try {
-    const domain = cleanDomain(store.url);
     const res = await axios.get(`https://${domain}/admin/api/2024-01/products/${productId}.json`, {
       headers: { 'X-Shopify-Access-Token': store.token },
       timeout: 8000
     });
-    return res.data?.product?.tags || '';
-  } catch (e) {
-    log('ERROR', `Error fetching product ${productId} from ${store.name}: ${e.message}`);
-    return '';
-  }
+    tags = res.data?.product?.tags || '';
+  } catch (e) {}
+
+  try {
+    const metaRes = await axios.get(`https://${domain}/admin/api/2024-01/products/${productId}/metafields.json`, {
+      headers: { 'X-Shopify-Access-Token': store.token },
+      timeout: 8000
+    });
+    const metafields = metaRes.data?.metafields || [];
+    const found = metafields.find(m => (m.namespace === 'custom' && m.key === 'supplier') || m.key === 'supplier');
+    if (found && found.value) metafield = String(found.value).trim();
+  } catch (e) {}
+
+  return { tags, metafield };
 }
 
-async function createOrderOnSupplierStore(supplierStore, retailerStore, items, sourceOrderName) {
+async function createOrderOnSupplierStore(supplierStore, retailerStore, items, sourceOrderName, processedSkus = []) {
   log('INFO', `🔄 Creating fulfillment order on ${supplierStore.name} for ${items.length} item(s)...`);
 
   const line_items = [];
@@ -472,15 +498,28 @@ async function createOrderOnSupplierStore(supplierStore, retailerStore, items, s
     return;
   }
 
+  const sellerEmail = retailerStore.ownerEmail && retailerStore.ownerEmail.includes('@')
+    ? retailerStore.ownerEmail
+    : 'seller@dropship-sync.com';
+
+  const sellerStoreName = retailerStore.name || `Store ${retailerStore.key}`;
+
   const orderPayload = {
     order: {
       line_items: line_items,
-      email: retailerStore.ownerEmail, 
+      customer: {
+        first_name: sellerStoreName,
+        last_name: "(Seller Store)",
+        email: sellerEmail
+      },
+      email: sellerEmail,
       shipping_address: retailerStore.address,
       billing_address: retailerStore.address,
-      tags: "Automated Dropship",
+      source_name: "Dropshipping",
+      tags: `Automated Dropship, Dropshipping, Soldby-${retailerStore.key || sellerStoreName}`,
       financial_status: "pending",
-      note: `Auto-generated B2B order for items sold in order ${sourceOrderName} on ${retailerStore.name}`
+      inventory_behaviour: "decrement_obeying_policy",
+      note: `Dropshipping order placed by ${sellerStoreName} (${retailerStore.url}) for original order #${sourceOrderName}.`
     }
   };
 
@@ -567,4 +606,4 @@ if (require.main === module) {
   app.listen(PORT, () => log('INFO', `Server running on port ${PORT}`));
 }
 
-module.exports = app;
+module.exports = app;

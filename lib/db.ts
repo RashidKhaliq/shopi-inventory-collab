@@ -1,5 +1,7 @@
-// lib/db.ts - Serverless Prisma Client Singleton with Fallback
+// lib/db.ts - Serverless Prisma Client Singleton with Persistent Storage Fallback
 import { PrismaClient } from '@prisma/client';
+import fs from 'fs';
+import path from 'path';
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
@@ -48,7 +50,19 @@ export interface MockOrderSync {
   createdAt: Date;
 }
 
-// In-Memory Fallback Storage if DATABASE_URL is not yet configured
+function getStorageFilePath(): string {
+  try {
+    const dataDir = path.join(process.cwd(), '.data');
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    return path.join(dataDir, 'order_sync_db.json');
+  } catch (e) {
+    return path.join('/tmp', 'order_sync_db.json');
+  }
+}
+
+// In-Memory & Persistent Fallback Storage if DATABASE_URL is not yet configured
 class InMemoryDatabase {
   public stores: Map<string, MockStore> = new Map();
   public processedWebhooks: Set<string> = new Set();
@@ -57,6 +71,7 @@ class InMemoryDatabase {
 
   constructor() {
     this.seedDefaultStores();
+    this.loadFromDisk();
   }
 
   private seedDefaultStores() {
@@ -93,6 +108,47 @@ class InMemoryDatabase {
     }
   }
 
+  private loadFromDisk() {
+    try {
+      const filePath = getStorageFilePath();
+      if (fs.existsSync(filePath)) {
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.stores)) {
+          for (const s of data.stores) {
+            this.stores.set(s.shopDomain, { ...s, createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt) });
+          }
+        }
+        if (Array.isArray(data.orderSyncs)) {
+          this.orderSyncs = data.orderSyncs.map((s: any) => ({ ...s, createdAt: new Date(s.createdAt) }));
+        }
+        if (Array.isArray(data.logs)) {
+          this.logs = data.logs.map((l: any) => ({ ...l, createdAt: new Date(l.createdAt) }));
+        }
+        if (Array.isArray(data.processedWebhooks)) {
+          this.processedWebhooks = new Set(data.processedWebhooks);
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading db fallback storage from disk:', e);
+    }
+  }
+
+  private saveToDisk() {
+    try {
+      const filePath = getStorageFilePath();
+      const payload = {
+        stores: Array.from(this.stores.values()),
+        orderSyncs: this.orderSyncs,
+        logs: this.logs,
+        processedWebhooks: Array.from(this.processedWebhooks)
+      };
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+    } catch (e) {
+      console.warn('Error saving db fallback storage to disk:', e);
+    }
+  }
+
   private matchesStoreSupplier(store: MockStore, targetName: string): boolean {
     if (!targetName || !targetName.trim()) return false;
     const cleanTarget = targetName.trim().toLowerCase().replace(/\s+/g, '');
@@ -102,17 +158,14 @@ class InMemoryDatabase {
     const sDomain = store.shopDomain ? store.shopDomain.trim().toLowerCase().replace(/\s+/g, '') : '';
     const sEmail = store.ownerEmail ? store.ownerEmail.trim().toLowerCase().replace(/\s+/g, '') : '';
 
-    // 1. Exact clean match
     if (sSupplier === cleanTarget || sName === cleanTarget || sDomain === cleanTarget || sEmail === cleanTarget) {
       return true;
     }
 
-    // 2. Substring / contains match
     if ((sName && sName.includes(cleanTarget)) || (sSupplier && cleanTarget.includes(sSupplier)) || (sName && cleanTarget.includes(sName))) {
       return true;
     }
 
-    // 3. Strip generic terms ("store", "shop", "supplier")
     const stripWords = (str: string) => str.replace(/store|shop|supplier|\(|\)/gi, '');
     const strippedTarget = stripWords(cleanTarget);
     const strippedSupplier = stripWords(sSupplier);
@@ -167,11 +220,12 @@ class InMemoryDatabase {
     const cleanDomain = storeData.shopDomain.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
     if (process.env.DATABASE_URL) {
       try {
-        return await prisma.store.upsert({
+        const saved = await prisma.store.upsert({
           where: { shopDomain: cleanDomain },
           update: { ...storeData, shopDomain: cleanDomain },
           create: { ...storeData, shopDomain: cleanDomain },
         });
+        return saved;
       } catch (err) {
         console.warn('Prisma DB save error:', err);
       }
@@ -184,6 +238,7 @@ class InMemoryDatabase {
       updatedAt: new Date()
     };
     this.stores.set(cleanDomain, store);
+    this.saveToDisk();
     return store;
   }
 
@@ -213,6 +268,7 @@ class InMemoryDatabase {
       }
     }
     this.processedWebhooks.add(webhookId);
+    this.saveToDisk();
   }
 
   public async addLog(level: string, message: string, topic?: string, shopDomain?: string, details?: string): Promise<void> {
@@ -241,15 +297,17 @@ class InMemoryDatabase {
 
     this.logs.unshift(entry);
     if (this.logs.length > 200) this.logs.pop();
+    this.saveToDisk();
   }
 
   public async getRecentLogs(limit = 100): Promise<MockSyncLog[]> {
     if (process.env.DATABASE_URL) {
       try {
-        return await prisma.syncLog.findMany({
+        const logs = await prisma.syncLog.findMany({
           take: limit,
           orderBy: { createdAt: 'desc' }
         });
+        if (logs && logs.length > 0) return logs;
       } catch (err) {
         console.warn('Prisma getRecentLogs error:', err);
       }
@@ -258,21 +316,24 @@ class InMemoryDatabase {
   }
 
   public async recordOrderSync(syncData: Omit<MockOrderSync, 'id' | 'createdAt'>): Promise<void> {
+    const record: MockOrderSync = {
+      id: `sync_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      ...syncData,
+      createdAt: new Date()
+    };
+
+    // Save to memory and disk first for immediate consistency
+    this.orderSyncs.unshift(record);
+    if (this.orderSyncs.length > 200) this.orderSyncs.pop();
+    this.saveToDisk();
+
     if (process.env.DATABASE_URL) {
       try {
         await prisma.orderSync.create({ data: syncData });
-        return;
       } catch (err) {
         console.warn('Prisma recordOrderSync error:', err);
       }
     }
-    const record: MockOrderSync = {
-      id: `sync_${Date.now()}`,
-      ...syncData,
-      createdAt: new Date()
-    };
-    this.orderSyncs.unshift(record);
-    if (this.orderSyncs.length > 100) this.orderSyncs.pop();
   }
 
   public async hasOrderBeenSynced(sourceShopDomain: string, sourceOrderId: string): Promise<boolean> {
@@ -293,13 +354,14 @@ class InMemoryDatabase {
     return this.orderSyncs.some(s => s.sourceShopDomain === cleanDomain && s.sourceOrderId === sourceOrderId);
   }
 
-  public async getOrderSyncs(limit = 50): Promise<MockOrderSync[]> {
+  public async getOrderSyncs(limit = 100): Promise<MockOrderSync[]> {
     if (process.env.DATABASE_URL) {
       try {
-        return await prisma.orderSync.findMany({
+        const records = await prisma.orderSync.findMany({
           take: limit,
           orderBy: { createdAt: 'desc' }
         });
+        if (records && records.length > 0) return records;
       } catch (err) {
         console.warn('Prisma getOrderSyncs error:', err);
       }
@@ -309,3 +371,4 @@ class InMemoryDatabase {
 }
 
 export const db = new InMemoryDatabase();
+

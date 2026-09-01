@@ -1,8 +1,6 @@
-// app/api/orders/route.ts - Order Sync History & Current Date Sync API
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { fetchRecentOrdersREST } from '@/lib/shopify';
-import { processOrderCreatedWebhook } from '@/app/api/webhooks/shopify/route';
+import { fetchRecentOrdersREST, processOrderCreatedWebhook } from '@/lib/shopify';
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);

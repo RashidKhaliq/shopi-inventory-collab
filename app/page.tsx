@@ -409,7 +409,15 @@ export default function Dashboard() {
                         <td className="p-3 text-emerald-400 font-semibold">{ord.targetOrderName || '-'}</td>
                         <td className="p-3 text-neutral-300">{ord.skus}</td>
                         <td className="p-3">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${ord.status === 'SUCCESS' ? 'bg-emerald-950 text-emerald-400' : 'bg-rose-950 text-rose-400'}`}>
+                          <span
+                            className={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                              ord.status === 'SUCCESS'
+                                ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                                : ord.status === 'SKIPPED'
+                                ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                                : 'bg-rose-950 text-rose-400 border border-rose-800'
+                            }`}
+                          >
                             {ord.status}
                           </span>
                         </td>

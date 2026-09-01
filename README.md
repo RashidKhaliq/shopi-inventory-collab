@@ -1,74 +1,162 @@
-# Multi-Store Shopify Inventory Sync (Next.js + Serverless + Supabase)
+# Shopify Multi-Store Inventory & Dropship Sync Engine
 
-A production-ready, serverless application for **multi-store Shopify inventory synchronization** and **automated B2B dropship order fulfillment**. Designed exclusively for Vercel Serverless Functions using Next.js 14 App Router, TypeScript, Prisma ORM / PostgreSQL (Supabase), and Shopify Admin GraphQL API.
+A production-ready solution for **automated B2B dropshipping fulfillment** and **real-time multi-store inventory synchronization** across independent Shopify stores. 
 
----
-
-## 🌟 Key Architecture & Capabilities
-
-- **100% Vercel Serverless Compatible**: Zero permanent background workers, Express servers, WebSockets, or Redis required.
-- **Shopify Admin GraphQL Engine**: Queries order line items, product tags (`Supplier: Name`), and product metafields (`custom.supplier`).
-- **Automated Dropship Order Creation**: When a customer places an order on Store A (e.g. `OTS-1005` containing `jacket-001` from Supplier: Rashid and `shirt-005` from Supplier: Hamza), the system creates a B2B fulfillment order on the target supplier's store (Store B/Hamza) tagged with `Soldby-Rashid` and `Automated Dropship`.
-- **Cross-Store Inventory Synchronization**: Automatically updates available inventory quantities for matching SKUs across connected stores upon order creation or inventory changes to prevent overselling.
-- **Database Idempotency Engine**: Uses PostgreSQL / Supabase with `ProcessedWebhook` table to guarantee zero duplicate webhook processing via `X-Shopify-Webhook-Id`.
-- **Loop Protection**: Built-in guard logic prevents infinite order loops by ignoring orders tagged `Automated Dropship` or `Soldby-`.
-- **Vercel Geist Admin Dashboard**: Modern responsive UI with live store health indicators, order audit trail, searchable log stream, and interactive SKU test simulator.
+Built with **Next.js 14 App Router**, **TypeScript**, **Prisma ORM**, **Shopify GraphQL & REST Admin APIs**, and an **Express standalone script runner**.
 
 ---
 
-## 🗄️ Database Setup (Supabase / PostgreSQL)
+## 💡 Why & When to Use This App
 
-1. Create a free PostgreSQL database on [Supabase](https://supabase.com) or [Vercel Postgres](https://vercel.com/postgres).
-2. Copy your PostgreSQL Connection String (Transaction Pooler or Direct URL).
-3. Set the `DATABASE_URL` environment variable:
-   ```env
-   DATABASE_URL="postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres?pgboiler=true"
-   ```
-4. Run Prisma schema migration to initialize tables:
+### The Problem
+When operating multiple Shopify stores (e.g. a brand store and reseller/partner stores):
+- Retailers (Store B) sell products supplied by an owner store (Store A).
+- Manual order placement on supplier stores leads to fulfillment delays, human error, and missing tracking information.
+- Inventory is disconnected: when Store B sells 1 unit of Store A's item, other connected stores don't know, leading to **overselling and stockouts**.
+
+### The Solution
+This application automates the entire cross-store dropshipping and inventory sync workflow in real time:
+1. **Detects product ownership** via structured product metafields (`custom.supplier`) or tags (`Supplier: Name`).
+2. **Automates B2B order creation** on the supplier store when a reseller sells their product.
+3. **Synchronizes inventory instantly** across **all connected stores** (> 2 stores) whenever any item is sold or updated.
+4. **Maintains a 100% complete Order Sync History audit trail** for every single sync attempt (SUCCESS, FAILED, SKIPPED, SELF_SALE).
+
+---
+
+## 🛠 Core Functionality & Scenarios
+
+### 1. Product Ownership Identification
+Product ownership is assigned using either:
+- **Shopify Product Metafield (Primary & Preferred)**:
+  ```
+  custom.supplier = "Rashid"
+  ```
+  *Structured, precise, and less likely to mix with normal product tags.*
+- **Product Tag (Secondary / Fallback)**:
+  ```
+  Supplier: Rashid
+  ```
+  *Case-insensitive matching (e.g. `Supplier: Rashid`, `supplier: rashid`).*
+
+If Store A has the supplier identifier `Rashid`, any product tagged with `custom.supplier = "Rashid"` or `Supplier: Rashid` is recognized as belonging to Store A.
+
+---
+
+### 2. Scenario 1: Store B sells Store A's product (Cross-Store Dropshipping)
+When **Store B** (Reseller) sells a product owned by **Store A** (Supplier):
+
+1. **Ownership Detection**: The app identifies that the sold SKU belongs to Store A based on `custom.supplier` or `Supplier: Rashid`.
+2. **B2B Order Creation on Store A**:
+   - The order is created on Store A under **Store B's owner/store name and email** (`retailerStore.name`, `retailerStore.ownerEmail`), representing a wholesale/B2B transaction placed by Store B.
+   - **Order Comments / Notes**: Includes Store B's original order number and specifies that it is a dropshipping order:
+     ```
+     Dropshipping order placed by Hamza Store (hamzastore.myshopify.com) for original order #1001.
+     ```
+   - **Shopify Sales Channel / Source**: Set to `"Dropshipping"`.
+   - **Order Tags**: Added `Automated Dropship`, `Dropshipping`, `Soldby-Hamza` (using Store B's supplier identifier or store name).
+3. **Multi-Store Inventory Sync (> 2 Stores)**:
+   - If connected stores are more than 2 (3 or more stores connected), the app immediately deducts/syncs the updated available product inventory across **all connected stores**, ensuring the sold product cannot remain available in other stores.
+4. **Order Sync Audit Log**:
+   - Recorded in **Order Sync History** as `SUCCESS` with details of source order `#1001` and created supplier order `#1002`.
+
+---
+
+### 3. Scenario 2: Store A sells its own product (Self-Sale)
+When **Store A** sells a product that Store A owns:
+
+1. **Ownership Detection**: The app identifies Store A as the product owner (`custom.supplier = "Rashid"` matches Store A).
+2. **No Dropshipping Order**: Since Store A is selling its own product, no B2B dropshipping order is created on another store.
+3. **Inventory Sync Across All Other Stores**:
+   - The sold quantity is deducted and synchronized across **all other connected stores** (Store B, Store C, etc.).
+4. **Order Tag & Recording**:
+   - Tagged `Soldby-Rashid` (Store A's name/identifier).
+   - Logged in **Order Sync History** as `SUCCESS` (Self Sale) with full SKU details.
+
+---
+
+### 4. Comprehensive Order Sync History
+**Every single order sync attempt** is captured in the dashboard Order Sync History tab:
+- **`SUCCESS`**: B2B dropshipping order created or self-sale inventory synced successfully.
+- **`FAILED`**: Detailed error message (e.g. SKU missing on supplier store or missing access token).
+- **`SKIPPED`**: Logged when no dropship SKUs or supplier rules matched.
+
+#### Persistence Layer
+- **PostgreSQL / Supabase**: Saved via Prisma ORM when `DATABASE_URL` is set.
+- **Local Persistent JSON Storage**: Automatic fallback to `.data/order_sync_db.json` when running locally or in serverless environments, guaranteeing zero loss of history across server restarts or cold starts.
+
+---
+
+## 📋 Requirements & Prerequisites
+
+1. **Node.js**: `v18.x` or higher.
+2. **Shopify Admin Access**:
+   - Access to connected stores' Shopify Admin.
+   - Admin API Access Tokens (`shpat_...`).
+   - Required Shopify API Scopes:
+     ```
+     read_products, write_products, read_orders, write_orders, read_inventory, write_inventory
+     ```
+
+---
+
+## 🚀 Setup & Execution Guide
+
+### Option A: Next.js App Router & Web Dashboard (Recommended)
+
+1. **Clone & Install Dependencies**:
    ```bash
+   git clone https://github.com/RashidKhaliq/shopi-inventory-collab.git
+   cd shopi-inventory-collab
+   npm install
+   ```
+
+2. **Configure Environment Variables (`.env`)**:
+   Create a `.env` file in the root directory:
+   ```env
+   # PostgreSQL Database (Optional - persistent JSON fallback used if omitted)
+   DATABASE_URL="postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres"
+
+   # Store A Configuration
+   STORE_A_URL="rashidstore.myshopify.com"
+   STORE_A_ACCESS_TOKEN="shpat_xxxxxxxxxxxxxxxx"
+   STORE_A_OWNER_EMAIL="rashid@example.com"
+   STORE_A_WEBHOOK_SECRET="shpss_aaaaaaaaaaaaaaaa"
+
+   # Store B Configuration
+   STORE_B_URL="hamzastore.myshopify.com"
+   STORE_B_ACCESS_TOKEN="shpat_yyyyyyyyyyyyyyyy"
+   STORE_B_OWNER_EMAIL="hamza@example.com"
+   STORE_B_WEBHOOK_SECRET="shpss_bbbbbbbbbbbbbbbb"
+   ```
+
+3. **Initialize Database (Optional)**:
+   ```bash
+   npx prisma generate
    npx prisma db push
    ```
 
+4. **Run Development Server**:
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:3000` in your browser.
+
+5. **Deploy to Vercel**:
+   ```bash
+   git push origin main
+   ```
+   Import into Vercel, configure your `.env` variables under **Project Settings > Environment Variables**, and deploy!
+
 ---
 
-## 🔑 Environment Variables Setup
+### Option B: Express Standalone Script Runner
 
-Configure the following environment variables in your local `.env` or Vercel Project Settings:
+If you prefer running a single Node.js Express process:
 
-```env
-# Database
-DATABASE_URL="postgresql://postgres:PASSWORD@db.xxxx.supabase.co:5432/postgres"
-
-# Shopify App OAuth (From Shopify Partner Dashboard)
-SHOPIFY_API_KEY="your_shopify_app_client_id"
-SHOPIFY_API_SECRET="your_shopify_app_client_secret"
-
-# Store A Configuration (Optional pre-seeded defaults)
-STORE_A_URL="rashidstore.myshopify.com"
-STORE_A_ACCESS_TOKEN="shpat_xxxxxxxxxxxxxxxx"
-STORE_A_OWNER_EMAIL="rashidkhaliq88@gmail.com"
-STORE_A_WEBHOOK_SECRET="shpss_a1b2c3d4..."
-
-# Store B Configuration (Optional pre-seeded defaults)
-STORE_B_URL="hamzastore.myshopify.com"
-STORE_B_ACCESS_TOKEN="shpat_yyyyyyyyyyyyyyyy"
-STORE_B_OWNER_EMAIL="Hamzatvc@gmail.com"
-STORE_B_WEBHOOK_SECRET="shpss_e5f6g7h8..."
+```bash
+node index.js
 ```
-
----
-
-## 🛍️ Shopify App Configuration (Shopify Partners)
-
-1. Go to [Shopify Partners Dashboard](https://partners.shopify.com) > **Apps** > **Create app**.
-2. Set **Allowed redirection URL(s)** to:
-   ```
-   https://your-app.vercel.app/api/auth/callback
-   ```
-3. Set **App Scopes**:
-   ```
-   read_products,write_products,read_orders,write_orders,read_inventory,write_inventory
-   ```
+The server will start on port `8000` (or `process.env.PORT`).
 
 ---
 
@@ -77,32 +165,53 @@ STORE_B_WEBHOOK_SECRET="shpss_e5f6g7h8..."
 Register the serverless webhook URL in each connected store's Shopify Admin (**Settings > Notifications > Webhooks**):
 
 - **Webhook URL**: `https://your-app.vercel.app/api/webhooks/shopify`
-- **Events to Subscribe**:
-  - `orders/create` (JSON)
-  - `inventory_levels/update` (JSON)
+- **Events to Subscribe (Format: JSON)**:
+  - `orders/create` (Triggers B2B dropshipping fulfillment & inventory sync)
+  - `inventory_levels/update` (Triggers real-time SKU inventory level sync)
+  - `orders/fulfilled` (Fulfillment status & tracking sync)
 
 ---
 
-## 🚀 Deployment to Vercel
+## 🧪 SKU Simulator & Diagnostics
 
-```bash
-git add .
-git commit -m "Deploy production Next.js multi-store inventory sync app"
-git push origin main
+Use the built-in **🧪 SKU Simulator** on the admin dashboard to test SKU matching and B2B order creation without placing live orders:
+1. Select **Source Selling Store** and **Target Supplier Store**.
+2. Enter product **SKU** (e.g. `jacket-001`).
+3. Click **Execute Test Sync**. The trace log will report whether the variant was matched, inventory items retrieved, and B2B order created.
+
+To verify system connection status and API keys, visit:
 ```
-
-1. Import your repository in [Vercel](https://vercel.com/new).
-2. Add your environment variables under **Settings > Environment Variables**.
-3. Click **Deploy**. Vercel will automatically build the Next.js App Router project!
+GET /api/verify-env
+```
 
 ---
 
-## 🧪 Local Development
+## 📁 Repository Structure
 
-```bash
-npm install
-npx prisma db push
-npm run dev
+```
+├── app/
+│   ├── api/
+│   │   ├── logs/             # Live log stream endpoint
+│   │   ├── orders/           # Order sync history & manual today's sync API
+│   │   ├── status/           # System connection status API
+│   │   ├── stores/           # Connected stores management API
+│   │   ├── test-sync/        # SKU simulator endpoint
+│   │   └── webhooks/shopify/ # Core Shopify webhook receiver
+│   ├── globals.css
+│   ├── layout.tsx
+│   └── page.tsx              # Vercel Geist Admin Dashboard UI
+├── lib/
+│   ├── db.ts                 # Database singleton with JSON file persistence fallback
+│   └── shopify.ts            # Shopify Admin GraphQL & REST engine
+├── prisma/
+│   └── schema.prisma         # Prisma ORM PostgreSQL schema
+├── index.js                  # Standalone Express script runner
+├── package.json
+└── README.md
 ```
 
-Open `http://localhost:3000` in your browser to access the Vercel-themed Admin Dashboard.
+---
+
+## 🛡 License & Support
+
+Maintained for multi-store Shopify collaborations. For questions or setup assistance, consult the diagnostic logs on the Admin Dashboard.
