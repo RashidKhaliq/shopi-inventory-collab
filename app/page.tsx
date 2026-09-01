@@ -10,6 +10,19 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Authentication & Lock Screen States
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [authError, setAuthError] = useState('');
+  
+  // Password Reset Modal States
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [passwordResetSuccess, setPasswordResetSuccess] = useState('');
+  const [passwordResetError, setPasswordResetError] = useState('');
+
   // Form states for manual store connection
   const [newStoreDomain, setNewStoreDomain] = useState('');
   const [newStoreName, setNewStoreName] = useState('');
@@ -47,13 +60,81 @@ export default function Dashboard() {
   };
 
   useEffect(() => {
-    fetchData();
+
+    // Check saved session in localStorage
+    const savedToken = localStorage.getItem('shopify_sync_auth_token');
+    if (savedToken) {
+      setIsAuthenticated(true);
+      fetchData();
+    }
+    setAuthChecking(false);
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
     const interval = setInterval(() => {
       fetchLogs();
       fetchOrders();
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isAuthenticated]);
+
+  const handleUnlockDashboard = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passwordInput })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        localStorage.setItem('shopify_sync_auth_token', data.token);
+        setIsAuthenticated(true);
+        setPasswordInput('');
+        fetchData();
+      } else {
+        setAuthError(data.error || 'Invalid password');
+      }
+    } catch (err: any) {
+      setAuthError('Authentication error: ' + err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('shopify_sync_auth_token');
+    setIsAuthenticated(false);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordResetError('');
+    setPasswordResetSuccess('');
+
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword: currentPasswordInput,
+          newPassword: newPasswordInput
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPasswordResetSuccess(data.message || 'Password updated successfully!');
+        setCurrentPasswordInput('');
+        setNewPasswordInput('');
+      } else {
+        setPasswordResetError(data.error || 'Failed to update password.');
+      }
+    } catch (err: any) {
+      setPasswordResetError('Error changing password: ' + err.message);
+    }
+  };
+
 
   const fetchData = async () => {
     setLoading(true);
@@ -182,6 +263,64 @@ export default function Dashboard() {
     alert('Copied Webhook URL to clipboard!');
   };
 
+  if (authChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white font-mono text-sm">
+        Checking authentication status...
+      </div>
+    );
+  }
+
+  // Render Password Lock Screen if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-black text-neutral-200 p-6">
+        <div className="w-full max-w-md bg-neutral-950 border border-neutral-800 rounded-2xl p-8 shadow-2xl">
+          <div className="flex flex-col items-center text-center mb-6">
+            <div className="w-12 h-12 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-3">
+              <span className="text-2xl">🔒</span>
+            </div>
+            <h2 className="text-xl font-bold text-white tracking-tight">Admin Dashboard Locked</h2>
+            <p className="text-xs text-neutral-400 mt-1">
+              Enter password to access Multi-Store Inventory &amp; Order Sync Hub.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="mb-4 p-3 bg-rose-950/60 border border-rose-800 text-rose-300 text-xs rounded-md font-mono text-center">
+              {authError}
+            </div>
+          )}
+
+          <form onSubmit={handleUnlockDashboard} className="space-y-4">
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">Dashboard Password *</label>
+              <input
+                type="password"
+                placeholder="Enter password..."
+                value={passwordInput}
+                onChange={e => setPasswordInput(e.target.value)}
+                className="w-full bg-black border border-neutral-800 rounded-md px-3.5 py-2.5 text-sm text-white font-mono focus:outline-none focus:border-neutral-600"
+                autoFocus
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-white hover:bg-neutral-200 text-black font-semibold text-xs py-3 rounded-md transition"
+            >
+              🔓 Unlock Admin Dashboard
+            </button>
+          </form>
+
+          <div className="mt-6 pt-4 border-t border-neutral-900 text-center text-[11px] text-neutral-500">
+            Default Password: <code className="text-neutral-300 bg-neutral-900 px-1.5 py-0.5 rounded font-mono">P@k!stan1947</code>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-black text-neutral-200">
       {/* HEADER */}
@@ -197,13 +336,19 @@ export default function Dashboard() {
             </span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 bg-neutral-950 border border-neutral-800 px-3.5 py-1.5 rounded-full text-xs font-medium">
-              <span className={`w-2.5 h-2.5 rounded-full ${statusData?.overallStatus === 'HEALTHY' ? 'bg-emerald-400 glow-green' : 'bg-amber-400 glow-red'}`} />
-              <span className="text-neutral-300">
-                {statusData?.overallStatus === 'HEALTHY' ? 'System Operational' : 'Action Required'}
-              </span>
-            </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowPasswordModal(true)}
+              className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 text-xs px-3 py-1.5 rounded-md font-medium transition"
+            >
+              🔒 Change Password
+            </button>
+            <button
+              onClick={handleLogout}
+              className="bg-rose-950/60 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs px-3 py-1.5 rounded-md font-medium transition"
+            >
+              🚪 Logout
+            </button>
             <button
               onClick={fetchData}
               className="bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-white text-xs px-3 py-1.5 rounded-md font-medium transition"
@@ -214,6 +359,70 @@ export default function Dashboard() {
         </div>
       </header>
 
+      {/* CHANGE PASSWORD MODAL */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-neutral-950 border border-neutral-800 rounded-xl p-6 max-w-md w-full">
+            <h3 className="text-base font-semibold text-white mb-1">Security Settings: Change Password</h3>
+            <p className="text-xs text-neutral-400 mb-4">
+              Update your dashboard password. The new password will be saved in your runtime environment.
+            </p>
+
+            {passwordResetSuccess && (
+              <div className="mb-4 p-3 bg-emerald-950/60 border border-emerald-800 text-emerald-300 text-xs rounded-md">
+                {passwordResetSuccess}
+              </div>
+            )}
+
+            {passwordResetError && (
+              <div className="mb-4 p-3 bg-rose-950/60 border border-rose-800 text-rose-300 text-xs rounded-md">
+                {passwordResetError}
+              </div>
+            )}
+
+            <form onSubmit={handleChangePassword} className="space-y-3">
+              <div>
+                <label className="block text-xs text-neutral-300 mb-1">Current Password *</label>
+                <input
+                  type="password"
+                  value={currentPasswordInput}
+                  onChange={e => setCurrentPasswordInput(e.target.value)}
+                  className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs text-neutral-300 mb-1">New Password *</label>
+                <input
+                  type="password"
+                  value={newPasswordInput}
+                  onChange={e => setNewPasswordInput(e.target.value)}
+                  className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  className="flex-1 bg-white hover:bg-neutral-200 text-black font-semibold text-xs py-2 rounded-md transition"
+                >
+                  Save New Password
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPasswordModal(false)}
+                  className="bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-xs px-4 py-2 rounded-md transition"
+                >
+                  Close
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* MAIN CONTAINER */}
       <main className="max-w-7xl mx-auto px-6 pt-8 pb-16 flex-1 w-full">
         {/* HERO BANNER */}
@@ -223,6 +432,7 @@ export default function Dashboard() {
             Automated B2B supplier order fulfillment and SKU inventory synchronization powered by Shopify GraphQL API.
           </p>
         </div>
+
 
         {/* TABS NAVIGATION */}
         <div className="flex border-b border-neutral-800 mb-8 gap-2">

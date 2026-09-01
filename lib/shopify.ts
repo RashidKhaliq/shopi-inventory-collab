@@ -379,33 +379,30 @@ export async function createSupplierFulfillmentOrder(
   }
 }
 
-// Synchronize Inventory Quantities for Matching SKUs across connected stores (> 2 stores)
+// Synchronize / Deduct Inventory Quantities for Matching SKUs across connected stores (> 2 stores)
 export async function syncInventoryAcrossStores(
   sourceShopDomain: string,
   sku: string,
-  targetQuantity?: number
+  soldQuantity: number = 1,
+  explicitNewQuantity?: number
 ): Promise<void> {
   const stores = await db.getAllStores();
   const cleanSource = cleanShopDomain(sourceShopDomain);
 
-  // Determine updated available quantity from source store if not explicitly passed
-  let newQuantity = targetQuantity;
+  // Determine updated available quantity from source store if explicit quantity provided
+  let targetAvailable = explicitNewQuantity;
 
-  if (newQuantity === undefined) {
+  if (targetAvailable === undefined) {
     const sourceStore = stores.find(s => cleanShopDomain(s.shopDomain) === cleanSource);
     if (sourceStore && sourceStore.accessToken) {
-      const sourceVariant = await findVariantIdBySku(sourceStore.shopDomain, sourceStore.accessToken, sku);
+      const sourceVariant = await findVariantIdBySku(sourceShopDomain, sourceStore.accessToken, sku);
       if (sourceVariant && sourceVariant.availableQuantity !== undefined) {
-        newQuantity = sourceVariant.availableQuantity;
+        targetAvailable = sourceVariant.availableQuantity;
       }
     }
   }
 
-  if (newQuantity === undefined) {
-    newQuantity = 0; // default safe fallback
-  }
-
-  // If connected stores > 2 (or all connected stores), push updated inventory to all other connected stores
+  // Deduct inventory across all other connected stores
   for (const store of stores) {
     if (cleanShopDomain(store.shopDomain) === cleanSource || !store.isActive) continue;
 
@@ -423,30 +420,51 @@ export async function syncInventoryAcrossStores(
         const locationId = locRes.data?.locations?.[0]?.id;
         if (!locationId) continue;
 
-        // Set inventory level
-        await axios.post(
-          `https://${domain}/admin/api/2024-01/inventory_levels/set.json`,
-          {
-            location_id: locationId,
-            inventory_item_id: variant.inventoryItemId,
-            available: newQuantity
-          },
-          {
-            headers: { 'X-Shopify-Access-Token': store.accessToken },
-            timeout: 8000
-          }
-        );
-
-        await db.addLog(
-          'INFO',
-          `Synced inventory for SKU '${sku}' on ${store.name} -> Available: ${newQuantity}`,
-          'inventory_sync',
-          store.shopDomain
-        );
+        if (targetAvailable !== undefined) {
+          // Set exact available quantity to match source store
+          await axios.post(
+            `https://${domain}/admin/api/2024-01/inventory_levels/set.json`,
+            {
+              location_id: locationId,
+              inventory_item_id: variant.inventoryItemId,
+              available: targetAvailable
+            },
+            {
+              headers: { 'X-Shopify-Access-Token': store.accessToken },
+              timeout: 8000
+            }
+          );
+          await db.addLog(
+            'INFO',
+            `📉 Inventory Synced for SKU '${sku}' on ${store.name} -> Available set to: ${targetAvailable}`,
+            'inventory_sync',
+            store.shopDomain
+          );
+        } else {
+          // Adjust inventory level by minus soldQuantity
+          await axios.post(
+            `https://${domain}/admin/api/2024-01/inventory_levels/adjust.json`,
+            {
+              location_id: locationId,
+              inventory_item_id: variant.inventoryItemId,
+              available_adjustment: -soldQuantity
+            },
+            {
+              headers: { 'X-Shopify-Access-Token': store.accessToken },
+              timeout: 8000
+            }
+          );
+          await db.addLog(
+            'INFO',
+            `📉 Inventory Deducted (-${soldQuantity}) for SKU '${sku}' on connected store ${store.name}`,
+            'inventory_sync',
+            store.shopDomain
+          );
+        }
       } catch (err: any) {
         await db.addLog(
           'ERROR',
-          `Failed to sync inventory for SKU '${sku}' on ${store.name}: ${err.message}`,
+          `Failed to adjust inventory for SKU '${sku}' on ${store.name}: ${err.message}`,
           'inventory_sync',
           store.shopDomain
         );
@@ -454,6 +472,86 @@ export async function syncInventoryAcrossStores(
     }
   }
 }
+
+// Add Tag of Seller (e.g. Soldby-StoreAName) to Product across connected stores
+export async function tagProductWithSellerOnStores(sku: string, sellerName: string): Promise<void> {
+  if (!sku || !sellerName) return;
+  const stores = await db.getAllStores();
+  const sellerTag = `Soldby-${sellerName.replace(/\s+/g, '')}`;
+
+  for (const store of stores) {
+    if (!store.isActive || !store.accessToken) continue;
+
+    try {
+      const domain = cleanShopDomain(store.shopDomain);
+
+      // Search product by SKU using GraphQL
+      const query = `
+        query findProductBySku($query: String!) {
+          productVariants(first: 5, query: $query) {
+            edges {
+              node {
+                product {
+                  id
+                  tags
+                }
+              }
+            }
+          }
+        }
+      `;
+
+      const res = await axios.post(
+        `https://${domain}/admin/api/2024-01/graphql.json`,
+        { query, variables: { query: `sku:"${sku.replace(/"/g, '\\"')}"` } },
+        {
+          headers: { 'X-Shopify-Access-Token': store.accessToken },
+          timeout: 8000
+        }
+      );
+
+      const pEdges = res.data?.data?.productVariants?.edges || [];
+      if (pEdges.length > 0 && pEdges[0].node?.product) {
+        const productData = pEdges[0].node.product;
+        const productIdRaw = productData.id;
+        const cleanProductId = productIdRaw.split('/').pop();
+        const existingTags = Array.isArray(productData.tags)
+          ? productData.tags
+          : (productData.tags ? String(productData.tags).split(',').map((t: string) => t.trim()) : []);
+
+        const hasTag = existingTags.some(
+          (t: string) => t.toLowerCase() === sellerTag.toLowerCase()
+        );
+
+        if (!hasTag) {
+          const updatedTags = [...existingTags, sellerTag].join(', ');
+          await axios.put(
+            `https://${domain}/admin/api/2024-01/products/${cleanProductId}.json`,
+            { product: { id: cleanProductId, tags: updatedTags } },
+            {
+              headers: { 'X-Shopify-Access-Token': store.accessToken },
+              timeout: 8000
+            }
+          );
+          await db.addLog(
+            'INFO',
+            `🏷️ Added tag '${sellerTag}' to product (SKU '${sku}') on ${store.name}`,
+            'product_tag',
+            store.shopDomain
+          );
+        }
+      }
+    } catch (err: any) {
+      await db.addLog(
+        'WARN',
+        `Could not update product tag '${sellerTag}' for SKU '${sku}' on ${store.name}: ${err.message}`,
+        'product_tag',
+        store.shopDomain
+      );
+    }
+  }
+}
+
 
 // Process Order Created Webhook Event
 export async function processOrderCreatedWebhook(order: any, shopDomain: string, sourceStore: any) {
@@ -569,11 +667,14 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
     }
   }
 
-  // Handle Scenario 2: Self-Sales Inventory Sync & Order History Logging
+  // Handle Scenario 2: Self-Sales Inventory Sync & Product Tagging
   if (selfSaleItems.length > 0) {
     for (const item of selfSaleItems) {
-      // Sync/deduct inventory across all other connected stores
-      await syncInventoryAcrossStores(shopDomain, item.sku);
+      // Deduct sold quantity from all other connected stores
+      await syncInventoryAcrossStores(shopDomain, item.sku, item.quantity);
+
+      // Add tag Soldby-SellerName to the product across connected stores
+      await tagProductWithSellerOnStores(item.sku, retailerStore.supplierName || retailerStore.name);
     }
 
     const selfSkusStr = selfSaleItems.map(i => `${i.sku} (x${i.quantity})`).join(', ');
@@ -587,7 +688,7 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
       targetOrderName: orderName,
       status: 'SUCCESS',
       skus: selfSkusStr,
-      error: `Self-sale by ${retailerStore.name} (Tag: Soldby-${retailerStore.supplierName}). Inventory deducted across all connected stores.`
+      error: `Self-sale by ${retailerStore.name}. Inventory deducted & product tagged Soldby-${retailerStore.supplierName || retailerStore.name} across connected stores.`
     });
   }
 
@@ -618,11 +719,13 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
       error: result.error || null
     });
 
-    // Auto-sync inventory across all connected stores if total stores > 2
+    // Auto-sync inventory & tag product across connected stores if total stores > 2
     for (const item of items) {
-      await syncInventoryAcrossStores(targetStore.shopDomain, item.sku);
+      await syncInventoryAcrossStores(targetStore.shopDomain, item.sku, item.quantity);
+      await tagProductWithSellerOnStores(item.sku, retailerStore.supplierName || retailerStore.name);
     }
   }
+
 
   // If no items matched any rules, log as SKIPPED so every attempt appears in history
   if (selfSaleItems.length === 0 && supplierItemsMap.size === 0) {
