@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 
-let dynamicPassword = process.env.DASHBOARD_PASSWORD || 'P@k!stan1947';
+let dynamicPassword = process.env.DASHBOARD_PASSWORD || 'abc12345';
 
 export async function GET(req: NextRequest) {
   return NextResponse.json({
