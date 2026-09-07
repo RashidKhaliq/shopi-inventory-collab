@@ -220,7 +220,7 @@ export async function findVariantIdBySku(
   shopDomain: string,
   accessToken: string,
   sku: string
-): Promise<{ variantId: string; productId?: string; inventoryItemId?: string; availableQuantity?: number } | null> {
+): Promise<{ variantId: string; productId?: string; inventoryItemId?: string; availableQuantity?: number; price?: string } | null> {
   const cleanSku = sku.trim();
   if (!cleanSku) return null;
   const domain = cleanShopDomain(shopDomain);
@@ -233,6 +233,7 @@ export async function findVariantIdBySku(
           node {
             id
             sku
+            price
             inventoryQuantity
             inventoryItem {
               id
@@ -266,7 +267,8 @@ export async function findVariantIdBySku(
           variantId: gid ? gid.split('/').pop()! : '',
           productId: prodGid ? prodGid.split('/').pop() : undefined,
           inventoryItemId: invGid ? invGid.split('/').pop() : undefined,
-          availableQuantity: edge.node.inventoryQuantity ?? undefined
+          availableQuantity: edge.node.inventoryQuantity ?? undefined,
+          price: edge.node.price ? String(edge.node.price) : undefined
         };
       }
     }
@@ -289,7 +291,8 @@ export async function findVariantIdBySku(
             variantId: String(v.id),
             productId: String(prod.id),
             inventoryItemId: String(v.inventory_item_id),
-            availableQuantity: v.inventory_quantity
+            availableQuantity: v.inventory_quantity,
+            price: v.price ? String(v.price) : undefined
           };
         }
       }
@@ -315,18 +318,27 @@ export async function createSupplierFulfillmentOrder(
     const variant = await findVariantIdBySku(supplierStore.shopDomain, supplierStore.accessToken, item.sku);
     if (variant && variant.variantId) {
       const parsedId = parseInt(variant.variantId, 10);
-      lineItemsPayload.push({
+      const lineItemObj: any = {
         variant_id: isNaN(parsedId) ? variant.variantId : parsedId,
         quantity: item.quantity,
         applied_discounts: [
           {
-            title: "50% Dropship Discount",
-            description: "50% off dropship discount",
+            title: "50% Inventory Sync Discount",
+            description: "50% discount on order placed via Inventory Sync import",
             value: "50.0",
             value_type: "percentage"
           }
         ]
-      });
+      };
+
+      if (variant.price) {
+        const originalPrice = parseFloat(variant.price);
+        if (!isNaN(originalPrice) && originalPrice > 0) {
+          lineItemObj.price = (originalPrice * 0.5).toFixed(2);
+        }
+      }
+
+      lineItemsPayload.push(lineItemObj);
     } else {
       await db.addLog('ERROR', `SKU '${item.sku}' not found on supplier store ${supplierStore.name}. Excluded from order.`, 'order_creation', supplierStore.shopDomain);
     }
@@ -356,10 +368,10 @@ export async function createSupplierFulfillmentOrder(
       },
       email: sellerEmail,
       source_name: "Dropshipping",
-      tags: `Automated Dropship, Dropshipping, Soldby-${retailerStore.supplierName || sellerStoreName}, 50% Discount Applied`,
+      tags: `Automated Dropship, Dropshipping, Inventory Sync, Soldby-${retailerStore.supplierName || sellerStoreName}, 50% Discount Applied`,
       financial_status: "pending",
       inventory_behaviour: "decrement_obeying_policy",
-      note: `Dropshipping order placed by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}. 50% discount applied on each product.`
+      note: `Dropshipping order placed via Inventory Sync import by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}. 50% discount applied on each product.`
     }
   };
 
@@ -373,7 +385,7 @@ export async function createSupplierFulfillmentOrder(
     const orderName = newOrder?.name || `#${newOrder?.order_number}`;
     await db.addLog(
       'INFO',
-      `🎉 Successfully created B2B Dropshipping Order ${orderName} (with 50% product discount) on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
+      `🎉 Successfully created B2B Dropshipping Order ${orderName} (with 50% product discount via Inventory Sync) on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
       'order_creation',
       supplierStore.shopDomain
     );
