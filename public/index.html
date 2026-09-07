@@ -743,14 +743,23 @@
       if (!envVars) return;
 
       const keys = [
+        { key: 'DATABASE_URL', desc: 'PostgreSQL / Prisma Database URL (POSTGRES_URL / PRISMA_DATABASE_URL)' },
+        { key: 'PORT', desc: 'Production Express Server Port' },
+        { key: 'STORE_A_NAME', desc: 'Store A Display Name' },
         { key: 'STORE_A_URL', desc: 'Store A Shopify URL' },
         { key: 'STORE_A_ACCESS_TOKEN', desc: 'Store A Admin API Access Token' },
         { key: 'STORE_A_OWNER_EMAIL', desc: 'Store A Owner Email' },
         { key: 'STORE_A_WEBHOOK_SECRET', desc: 'Store A Webhook Secret (HMAC verification)' },
+        { key: 'STORE_B_NAME', desc: 'Store B Display Name' },
         { key: 'STORE_B_URL', desc: 'Store B Shopify URL' },
         { key: 'STORE_B_ACCESS_TOKEN', desc: 'Store B Admin API Access Token' },
         { key: 'STORE_B_OWNER_EMAIL', desc: 'Store B Owner Email' },
-        { key: 'STORE_B_WEBHOOK_SECRET', desc: 'Store B Webhook Secret (HMAC verification)' }
+        { key: 'STORE_B_WEBHOOK_SECRET', desc: 'Store B Webhook Secret (HMAC verification)' },
+        { key: 'STORE_C_NAME', desc: 'Store C Display Name' },
+        { key: 'STORE_C_URL', desc: 'Store C Shopify URL' },
+        { key: 'STORE_C_ACCESS_TOKEN', desc: 'Store C Admin API Access Token' },
+        { key: 'STORE_C_OWNER_EMAIL', desc: 'Store C Owner Email' },
+        { key: 'STORE_C_WEBHOOK_SECRET', desc: 'Store C Webhook Secret (HMAC verification)' }
       ];
 
       tbody.innerHTML = keys.map(item => {

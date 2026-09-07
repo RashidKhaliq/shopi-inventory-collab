@@ -54,7 +54,7 @@ function getShopifyConfig() {
   return {
     STORE_A: {
       key: 'STORE_A',
-      name: "Rashid Store (Store A)",
+      name: process.env.STORE_A_NAME || "Rashid Store (Store A)",
       url: process.env.STORE_A_URL,
       token: process.env.STORE_A_ACCESS_TOKEN,
       ownerEmail: process.env.STORE_A_OWNER_EMAIL,
@@ -70,7 +70,7 @@ function getShopifyConfig() {
     },
     STORE_B: {
       key: 'STORE_B',
-      name: "Hamza Store (Store B)",
+      name: process.env.STORE_B_NAME || "Hamza Store (Store B)",
       url: process.env.STORE_B_URL,
       token: process.env.STORE_B_ACCESS_TOKEN,
       ownerEmail: process.env.STORE_B_OWNER_EMAIL,
@@ -79,6 +79,22 @@ function getShopifyConfig() {
         first_name: "Hamza", 
         last_name: "Owner",
         address1: "Wapda Town", 
+        city: "Lahore", 
+        country: "PK", 
+        zip: "54000" 
+      }
+    },
+    STORE_C: {
+      key: 'STORE_C',
+      name: process.env.STORE_C_NAME || "Store C",
+      url: process.env.STORE_C_URL,
+      token: process.env.STORE_C_ACCESS_TOKEN,
+      ownerEmail: process.env.STORE_C_OWNER_EMAIL,
+      webhookSecret: process.env.STORE_C_WEBHOOK_SECRET,
+      address: { 
+        first_name: "Store", 
+        last_name: "C",
+        address1: "Main", 
         city: "Lahore", 
         country: "PK", 
         zip: "54000" 
@@ -127,22 +143,35 @@ app.get('/', (req, res) => {
 // --- DETAILED ENVIRONMENT VARIABLE DIAGNOSTICS API ---
 app.get('/api/verify-env', async (req, res) => {
   const config = getShopifyConfig();
+  const dbUrl = process.env.DATABASE_URL || process.env.PRISMA_DATABASE_URL || process.env.POSTGRES_URL;
   
   const envCheck = {
+    DATABASE_URL: checkEnvVar('DATABASE_URL / POSTGRES_URL', dbUrl, true, false),
+    PORT: checkEnvVar('PORT', process.env.PORT, false, false),
+
+    STORE_A_NAME: checkEnvVar('STORE_A_NAME', config.STORE_A.name, false, false),
     STORE_A_URL: checkEnvVar('STORE_A_URL', config.STORE_A.url),
     STORE_A_ACCESS_TOKEN: checkEnvVar('STORE_A_ACCESS_TOKEN', config.STORE_A.token, true),
     STORE_A_OWNER_EMAIL: checkEnvVar('STORE_A_OWNER_EMAIL', config.STORE_A.ownerEmail),
     STORE_A_WEBHOOK_SECRET: checkEnvVar('STORE_A_WEBHOOK_SECRET', config.STORE_A.webhookSecret, true, false),
 
+    STORE_B_NAME: checkEnvVar('STORE_B_NAME', config.STORE_B.name, false, false),
     STORE_B_URL: checkEnvVar('STORE_B_URL', config.STORE_B.url),
     STORE_B_ACCESS_TOKEN: checkEnvVar('STORE_B_ACCESS_TOKEN', config.STORE_B.token, true),
     STORE_B_OWNER_EMAIL: checkEnvVar('STORE_B_OWNER_EMAIL', config.STORE_B.ownerEmail),
-    STORE_B_WEBHOOK_SECRET: checkEnvVar('STORE_B_WEBHOOK_SECRET', config.STORE_B.webhookSecret, true, false)
+    STORE_B_WEBHOOK_SECRET: checkEnvVar('STORE_B_WEBHOOK_SECRET', config.STORE_B.webhookSecret, true, false),
+
+    STORE_C_NAME: checkEnvVar('STORE_C_NAME', config.STORE_C.name, false, false),
+    STORE_C_URL: checkEnvVar('STORE_C_URL', config.STORE_C.url, false, false),
+    STORE_C_ACCESS_TOKEN: checkEnvVar('STORE_C_ACCESS_TOKEN', config.STORE_C.token, true, false),
+    STORE_C_OWNER_EMAIL: checkEnvVar('STORE_C_OWNER_EMAIL', config.STORE_C.ownerEmail, false, false),
+    STORE_C_WEBHOOK_SECRET: checkEnvVar('STORE_C_WEBHOOK_SECRET', config.STORE_C.webhookSecret, true, false),
   };
 
   // Test live Shopify API connections
   const storeATest = await testStoreConnectionDetailed(config.STORE_A);
   const storeBTest = await testStoreConnectionDetailed(config.STORE_B);
+  const storeCTest = config.STORE_C.url ? await testStoreConnectionDetailed(config.STORE_C) : { name: config.STORE_C.name, status: 'NOT_CONFIGURED' };
 
   const allVarsPresent = Object.values(envCheck).every(v => !v.required || v.status === 'OK');
   const allApiConnected = storeATest.status === 'CONNECTED' && storeBTest.status === 'CONNECTED';
@@ -152,7 +181,8 @@ app.get('/api/verify-env', async (req, res) => {
     overallStatus: (allVarsPresent && allApiConnected) ? 'ALL_SYSTEMS_GO' : 'CONFIGURATION_OR_AUTH_ISSUES',
     envVariables: envCheck,
     storeA: storeATest,
-    storeB: storeBTest
+    storeB: storeBTest,
+    storeC: storeCTest
   });
 });
 
@@ -184,7 +214,8 @@ app.get('/api/status', async (req, res) => {
     timestamp: new Date().toISOString(),
     overallStatus: 'OK',
     storeA: await testStoreConnectionDetailed(config.STORE_A),
-    storeB: await testStoreConnectionDetailed(config.STORE_B)
+    storeB: await testStoreConnectionDetailed(config.STORE_B),
+    storeC: config.STORE_C.url ? await testStoreConnectionDetailed(config.STORE_C) : { name: config.STORE_C.name, status: 'NOT_CONFIGURED' }
   };
 
   if (report.storeA.status !== 'CONNECTED' || report.storeB.status !== 'CONNECTED') {

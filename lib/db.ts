@@ -3,6 +3,15 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
+// Automatically set DATABASE_URL from Vercel Postgres environment variables if available
+if (!process.env.DATABASE_URL) {
+  if (process.env.PRISMA_DATABASE_URL) {
+    process.env.DATABASE_URL = process.env.PRISMA_DATABASE_URL;
+  } else if (process.env.POSTGRES_URL) {
+    process.env.DATABASE_URL = process.env.POSTGRES_URL;
+  }
+}
+
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
 
 export const prisma =
@@ -71,6 +80,7 @@ class InMemoryDatabase {
   public inventorySyncMode: 'MINUS_INVENTORY' | 'DRAFT_PRODUCT' = 'DRAFT_PRODUCT';
   public dashboardPassword?: string;
   public inventorySummary?: any = null;
+  private isSyncedWithDb = false;
 
   constructor() {
     this.seedDefaultStores();
@@ -78,15 +88,18 @@ class InMemoryDatabase {
   }
 
   private seedDefaultStores() {
+    // Store A
     if (process.env.STORE_A_URL) {
       const domainA = process.env.STORE_A_URL.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
+      const nameA = process.env.STORE_A_NAME || 'Sharry Store (OTS)';
+      const supplierA = process.env.STORE_A_NAME ? process.env.STORE_A_NAME.replace(/store|\(|\)/gi, '').trim() || 'Sharry' : 'Sharry';
       this.stores.set(domainA, {
         id: 'store_a',
         shopDomain: domainA,
-        name: 'Sharry Store (OTS)',
+        name: nameA,
         accessToken: process.env.STORE_A_ACCESS_TOKEN || '',
         ownerEmail: process.env.STORE_A_OWNER_EMAIL || 'rashidkhaliq88@gmail.com',
-        supplierName: 'Sharry',
+        supplierName: supplierA,
         webhookSecret: process.env.STORE_A_WEBHOOK_SECRET || null,
         isActive: true,
         createdAt: new Date(),
@@ -94,20 +107,105 @@ class InMemoryDatabase {
       });
     }
 
+    // Store B
     if (process.env.STORE_B_URL) {
       const domainB = process.env.STORE_B_URL.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
+      const nameB = process.env.STORE_B_NAME || 'Hamza Store (Vougewing)';
+      const supplierB = process.env.STORE_B_NAME ? process.env.STORE_B_NAME.replace(/store|\(|\)/gi, '').trim() || 'Hamza' : 'Hamza';
       this.stores.set(domainB, {
         id: 'store_b',
         shopDomain: domainB,
-        name: 'Hamza Store (Vougewing)',
+        name: nameB,
         accessToken: process.env.STORE_B_ACCESS_TOKEN || '',
         ownerEmail: process.env.STORE_B_OWNER_EMAIL || 'Hamzatvc@gmail.com',
-        supplierName: 'Hamza',
+        supplierName: supplierB,
         webhookSecret: process.env.STORE_B_WEBHOOK_SECRET || null,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date()
       });
+    }
+
+    // Store C
+    if (process.env.STORE_C_URL) {
+      const domainC = process.env.STORE_C_URL.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
+      const nameC = process.env.STORE_C_NAME || 'Store C';
+      const supplierC = process.env.STORE_C_NAME ? process.env.STORE_C_NAME.replace(/store|\(|\)/gi, '').trim() || 'Store C' : 'Store C';
+      this.stores.set(domainC, {
+        id: 'store_c',
+        shopDomain: domainC,
+        name: nameC,
+        accessToken: process.env.STORE_C_ACCESS_TOKEN || '',
+        ownerEmail: process.env.STORE_C_OWNER_EMAIL || '',
+        supplierName: supplierC,
+        webhookSecret: process.env.STORE_C_WEBHOOK_SECRET || null,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+  }
+
+  public async syncEnvStoresToDatabase(): Promise<void> {
+    if (!process.env.DATABASE_URL) return;
+    try {
+      const envStores = [
+        {
+          key: 'store_a',
+          url: process.env.STORE_A_URL,
+          name: process.env.STORE_A_NAME || 'Sharry Store (OTS)',
+          token: process.env.STORE_A_ACCESS_TOKEN || '',
+          email: process.env.STORE_A_OWNER_EMAIL || 'rashidkhaliq88@gmail.com',
+          supplier: process.env.STORE_A_NAME ? process.env.STORE_A_NAME.replace(/store|\(|\)/gi, '').trim() || 'Sharry' : 'Sharry',
+          secret: process.env.STORE_A_WEBHOOK_SECRET || null,
+        },
+        {
+          key: 'store_b',
+          url: process.env.STORE_B_URL,
+          name: process.env.STORE_B_NAME || 'Hamza Store (Vougewing)',
+          token: process.env.STORE_B_ACCESS_TOKEN || '',
+          email: process.env.STORE_B_OWNER_EMAIL || 'Hamzatvc@gmail.com',
+          supplier: process.env.STORE_B_NAME ? process.env.STORE_B_NAME.replace(/store|\(|\)/gi, '').trim() || 'Hamza' : 'Hamza',
+          secret: process.env.STORE_B_WEBHOOK_SECRET || null,
+        },
+        {
+          key: 'store_c',
+          url: process.env.STORE_C_URL,
+          name: process.env.STORE_C_NAME || 'Store C',
+          token: process.env.STORE_C_ACCESS_TOKEN || '',
+          email: process.env.STORE_C_OWNER_EMAIL || '',
+          supplier: process.env.STORE_C_NAME ? process.env.STORE_C_NAME.replace(/store|\(|\)/gi, '').trim() || 'Store C' : 'Store C',
+          secret: process.env.STORE_C_WEBHOOK_SECRET || null,
+        },
+      ];
+
+      for (const st of envStores) {
+        if (!st.url) continue;
+        const cleanDomain = st.url.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
+        await prisma.store.upsert({
+          where: { shopDomain: cleanDomain },
+          update: {
+            name: st.name,
+            accessToken: st.token,
+            ownerEmail: st.email,
+            supplierName: st.supplier,
+            webhookSecret: st.secret,
+            isActive: true,
+          },
+          create: {
+            shopDomain: cleanDomain,
+            name: st.name,
+            accessToken: st.token,
+            ownerEmail: st.email,
+            supplierName: st.supplier,
+            webhookSecret: st.secret,
+            isActive: true,
+          },
+        });
+      }
+      this.isSyncedWithDb = true;
+    } catch (err) {
+      console.warn('Error syncing environment stores to PostgreSQL DB:', err);
     }
   }
 
@@ -225,6 +323,9 @@ class InMemoryDatabase {
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '').trim();
     if (process.env.DATABASE_URL) {
       try {
+        if (!this.isSyncedWithDb) {
+          await this.syncEnvStoresToDatabase();
+        }
         const store = await prisma.store.findUnique({ where: { shopDomain: cleanDomain } });
         if (store) return store;
       } catch (err) {
@@ -248,6 +349,9 @@ class InMemoryDatabase {
     let stores: MockStore[] = [];
     if (process.env.DATABASE_URL) {
       try {
+        if (!this.isSyncedWithDb) {
+          await this.syncEnvStoresToDatabase();
+        }
         stores = await prisma.store.findMany({ orderBy: { createdAt: 'desc' } });
       } catch (err) {
         console.warn('Prisma DB error, falling back to memory:', err);
