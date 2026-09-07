@@ -344,8 +344,8 @@ export async function createSupplierFulfillmentOrder(
         quantity: item.quantity,
         applied_discounts: [
           {
-            title: "50% Inventory Sync Discount",
-            description: "50% discount on order placed via Inventory Sync import",
+            title: "70% Inventory Sync Discount",
+            description: "70% discount on order placed via Inventory Sync import",
             value: "50.0",
             value_type: "percentage"
           }
@@ -389,10 +389,10 @@ export async function createSupplierFulfillmentOrder(
           type: "percentage"
         }
       ],
-      tags: `Automated Dropship, Dropshipping, Inventory Sync, Soldby-${retailerStore.supplierName || sellerStoreName}, 50% Discount Applied, Coupon: Dropshipping`,
+      tags: `Automated Dropship, Dropshipping, Inventory Sync, Soldby-${retailerStore.supplierName || sellerStoreName}, 70% Discount Applied, Coupon: Dropshipping`,
       financial_status: "pending",
       inventory_behaviour: "decrement_obeying_policy",
-      note: `Dropshipping order placed via Inventory Sync import by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}. Coupon code 'Dropshipping' (50% off) applied on each product.`
+      note: `Dropshipping order placed via Inventory Sync import by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}. Coupon code 'Dropshipping' (70% off) applied on each product.`
     }
   };
 
@@ -406,7 +406,7 @@ export async function createSupplierFulfillmentOrder(
     const orderName = newOrder?.name || `#${newOrder?.order_number}`;
     await db.addLog(
       'INFO',
-      `🎉 Successfully created B2B Dropshipping Order ${orderName} (with 'Dropshipping' 50% coupon code applied) on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
+      `🎉 Successfully created B2B Dropshipping Order ${orderName} (with 'Dropshipping' 70% coupon code applied) on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
       'order_creation',
       supplierStore.shopDomain
     );

@@ -47,13 +47,13 @@ When **Store B** (Reseller) sells a product owned by **Store A** (Supplier):
 
 1. **Ownership Detection**: The app identifies that the sold SKU belongs to Store A based on `custom.supplier` or `Supplier: Sharry`.
 2. **B2B Order Creation on Store A**:
-   - The order is created on Store A under **Store B's owner/store name and email** (`retailerStore.name`, `retailerStore.ownerEmail`), representing a wholesale/B2B transaction placed by Store B with a **50% discount on each product**.
-   - **Order Comments / Notes**: Includes Store B's original order number and specifies that it is a dropshipping order with 50% discount:
+   - The order is created on Store A under **Store B's owner/store name and email** (`retailerStore.name`, `retailerStore.ownerEmail`), representing a wholesale/B2B transaction placed by Store B with a **70% discount on each product**.
+   - **Order Comments / Notes**: Includes Store B's original order number and specifies that it is a dropshipping order with 70% discount:
      ```
-     Dropshipping order placed by Hamza Store (Vougewing) (hamzastore.myshopify.com) for original order #1001. 50% discount applied on each product.
+     Dropshipping order placed by Hamza Store (Vougewing) (hamzastore.myshopify.com) for original order #1001. 70% discount applied on each product.
      ```
    - **Shopify Sales Channel / Source**: Set to `"Dropshipping"`.
-   - **Order Tags**: Added `Automated Dropship`, `Dropshipping`, `Soldby-Hamza`, `50% Discount Applied`.
+   - **Order Tags**: Added `Automated Dropship`, `Dropshipping`, `Soldby-Hamza`, `70% Discount Applied`.
 3. **Multi-Store Inventory Sync (> 2 Stores)**:
    - If connected stores are more than 2 (3 or more stores connected), the app immediately deducts/syncs the updated available product inventory across **all connected stores**, ensuring the sold product cannot remain available in other stores.
 4. **Order Sync Audit Log**:
