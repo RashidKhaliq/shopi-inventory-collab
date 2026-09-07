@@ -70,7 +70,7 @@ export function extractSupplierName(tags?: string | null, metafield?: string | n
     return metafield.trim();
   }
 
-  // 2. Secondary Identifier: Supplier: <Name> tag (case-insensitive)
+  // 2. Secondary Identifier: Supplier: <Name> tag (case-insensitive) or direct tags
   if (tags && typeof tags === 'string' && tags.trim() !== '') {
     const tagList = tags.split(',').map(t => t.trim());
     for (const tag of tagList) {
@@ -79,15 +79,22 @@ export function extractSupplierName(tags?: string | null, metafield?: string | n
         return match[1].trim();
       }
     }
+    // Direct tag match (e.g. "Sharry", "OTS", "Hamza", "Vougewing")
+    for (const tag of tagList) {
+      if (tag && !tag.toLowerCase().startsWith('soldby-') && !tag.toLowerCase().startsWith('automated') && !tag.toLowerCase().includes('discount')) {
+        return tag.trim();
+      }
+    }
   }
 
-  // 3. Fallback: Line item vendor matching Supplier: <Name>
+  // 3. Fallback: Line item vendor matching Supplier: <Name> or direct vendor string
   if (vendor && typeof vendor === 'string' && vendor.trim() !== '') {
     const cleanVendor = vendor.trim();
     const vendorMatch = cleanVendor.match(/^(?:Supplier|supplier)[:_\s]+(.+)$/i);
     if (vendorMatch && vendorMatch[1]) {
       return vendorMatch[1].trim();
     }
+    return cleanVendor;
   }
 
   return null;
@@ -115,38 +122,43 @@ export async function getProductDetailsREST(
 
     const product = res.data?.product;
     if (product) {
-      tags = Array.isArray(product.tags) ? product.tags.join(', ') : (product.tags || '');
+      tags = product.tags || '';
       vendor = product.vendor || '';
     }
   } catch (err: any) {
-    // Ignore REST product lookup error
+    await db.addLog('WARN', `Failed to fetch REST product details for product ${cleanId} on ${domain}: ${err.message}`, 'product_fetch', domain);
   }
 
-  // Fetch product metafields for custom.supplier
+  // Fetch Metafields for product
   try {
-    const metaRes = await axios.get(`https://${domain}/admin/api/2024-01/products/${cleanId}/metafields.json`, {
+    const mfRes = await axios.get(`https://${domain}/admin/api/2024-01/products/${cleanId}/metafields.json`, {
       headers: { 'X-Shopify-Access-Token': accessToken },
       timeout: 8000
     });
 
-    const metafields = metaRes.data?.metafields || [];
-    const found = metafields.find((m: any) =>
-      (m.namespace === 'custom' && m.key === 'supplier') || m.key === 'supplier'
+    const metafields = mfRes.data?.metafields || [];
+    const suppMf = metafields.find(
+      (m: any) => (m.namespace === 'custom' && m.key === 'supplier') || m.key === 'supplier'
     );
-    if (found && found.value) {
-      supplierMetafield = String(found.value).trim();
+    if (suppMf) {
+      supplierMetafield = String(suppMf.value);
     }
   } catch (err: any) {
-    // Ignore REST metafield error
+    // Non-critical: ignore metafield fetch errors
   }
 
   return { tags, vendor, supplierMetafield };
 }
 
-// Fetch Full Order details using Shopify Admin GraphQL API
-export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: string, orderId: string): Promise<ParsedOrder | null> {
+// Fetch Order details & line item product tags/metafields via GraphQL API
+export async function getOrderDetailsGraphQL(
+  shopDomain: string,
+  accessToken: string,
+  orderId: string
+): Promise<ParsedOrder | null> {
   const domain = cleanShopDomain(shopDomain);
-  const formattedOrderId = orderId.startsWith('gid://') ? orderId : `gid://shopify/Order/${orderId}`;
+  const cleanId = orderId.replace(/^gid:\/\/shopify\/Order\//, '');
+  const orderGid = `gid://shopify/Order/${cleanId}`;
 
   const query = `
     query getOrder($id: ID!) {
@@ -163,12 +175,13 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
               sku
               quantity
               vendor
-              product {
-                id
-                tags
-                vendor
-                metafield(namespace: "custom", key: "supplier") {
-                  value
+              variant {
+                product {
+                  id
+                  tags
+                  metafield(namespace: "custom", key: "supplier") {
+                    value
+                  }
                 }
               }
             }
@@ -181,7 +194,7 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
   try {
     const res = await axios.post(
       `https://${domain}/admin/api/2024-01/graphql.json`,
-      { query, variables: { id: formattedOrderId } },
+      { query, variables: { id: orderGid } },
       {
         headers: { 'X-Shopify-Access-Token': accessToken },
         timeout: 10000
@@ -191,26 +204,34 @@ export async function getOrderDetailsGraphQL(shopDomain: string, accessToken: st
     const orderData = res.data?.data?.order;
     if (!orderData) return null;
 
-    const lineItems: LineItemInfo[] = (orderData.lineItems?.edges || []).map((edge: any) => ({
-      id: edge.node.id,
-      title: edge.node.title,
-      sku: edge.node.sku ? edge.node.sku.trim() : '',
-      quantity: edge.node.quantity || 1,
-      productId: edge.node.product?.id ? edge.node.product.id.split('/').pop() : '',
-      productTags: Array.isArray(edge.node.product?.tags) ? edge.node.product.tags.join(', ') : (edge.node.product?.tags || ''),
-      customSupplierMetafield: edge.node.product?.metafield?.value || null,
-      vendor: edge.node.vendor || edge.node.product?.vendor || ''
-    }));
+    const lineItems: LineItemInfo[] = (orderData.lineItems?.edges || []).map((edge: any) => {
+      const node = edge.node;
+      const product = node.variant?.product;
+      const tagsArray = product?.tags || [];
+      const tagsStr = Array.isArray(tagsArray) ? tagsArray.join(', ') : String(tagsArray);
+      const supplierMf = product?.metafield?.value || null;
+
+      return {
+        id: String(node.id),
+        title: node.title,
+        sku: node.sku ? node.sku.trim() : '',
+        quantity: node.quantity || 1,
+        productId: product?.id ? String(product.id) : '',
+        productTags: tagsStr,
+        customSupplierMetafield: supplierMf,
+        vendor: node.vendor || ''
+      };
+    });
 
     return {
-      id: orderData.id,
+      id: String(orderData.id),
       name: orderData.name,
       email: orderData.email,
-      tags: Array.isArray(orderData.tags) ? orderData.tags.join(', ') : (orderData.tags || ''),
+      tags: Array.isArray(orderData.tags) ? orderData.tags.join(', ') : orderData.tags,
       lineItems
     };
   } catch (err: any) {
-    await db.addLog('ERROR', `GraphQL order fetch failed for order ${orderId} on ${domain}: ${err.message}`, 'graphql', domain);
+    await db.addLog('WARN', `GraphQL order fetch failed for order ${orderId} on ${domain}: ${err.message}`, 'graphql', domain);
     return null;
   }
 }
@@ -330,13 +351,6 @@ export async function createSupplierFulfillmentOrder(
           }
         ]
       };
-
-      if (variant.price) {
-        const originalPrice = parseFloat(variant.price);
-        if (!isNaN(originalPrice) && originalPrice > 0) {
-          lineItemObj.price = (originalPrice * 0.5).toFixed(2);
-        }
-      }
 
       lineItemsPayload.push(lineItemObj);
     } else {
@@ -670,13 +684,29 @@ export async function processOrderCreatedWebhook(order: any, shopDomain: string,
       shopDomain
     );
 
-    const supplierStore =
-      (supplierName ? await db.getStoreBySupplierName(supplierName) : null) ||
-      sourceStore || {
-        shopDomain,
-        name: shopDomain,
-        supplierName: shopDomain.split('.')[0]
-      };
+    let targetSupplierStore = supplierName ? await db.getStoreBySupplierName(supplierName) : null;
+
+    // Fallback: If supplierName wasn't resolved by tag/metafield, search other connected stores to see if one of them owns this SKU!
+    if (!targetSupplierStore) {
+      const allConnected = await db.getAllStores();
+      for (const st of allConnected) {
+        if (cleanShopDomain(st.shopDomain) !== cleanShopDomain(shopDomain) && st.accessToken) {
+          const v = await findVariantIdBySku(st.shopDomain, st.accessToken, item.sku);
+          if (v && v.variantId) {
+            targetSupplierStore = st;
+            await db.addLog(
+              'INFO',
+              `🔍 SKU Ownership Resolved: SKU '${item.sku}' matched in catalog of connected store '${st.name}' (${st.shopDomain})!`,
+              'orders/create',
+              shopDomain
+            );
+            break;
+          }
+        }
+      }
+    }
+
+    const supplierStore = targetSupplierStore || sourceStore;
 
     if (!supplierStore || !supplierStore.shopDomain) continue;
 
