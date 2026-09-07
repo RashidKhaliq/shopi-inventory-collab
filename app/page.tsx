@@ -600,7 +600,7 @@ export default function Dashboard() {
                     <label className="block text-xs text-neutral-300 mb-1">Store Display Name</label>
                     <input
                       type="text"
-                      placeholder="e.g. Rashid Store"
+                      placeholder="e.g. Sharry Store"
                       value={newStoreName}
                       onChange={e => setNewStoreName(e.target.value)}
                       className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white focus:outline-none focus:border-neutral-600"
@@ -630,10 +630,10 @@ export default function Dashboard() {
                   </div>
 
                   <div>
-                    <label className="block text-xs text-neutral-300 mb-1">Supplier Name Tag (e.g. Rashid or Hamza) *</label>
+                    <label className="block text-xs text-neutral-300 mb-1">Supplier Name Tag (e.g. Sharry or Hamza) *</label>
                     <input
                       type="text"
-                      placeholder="e.g. Rashid"
+                      placeholder="e.g. Sharry"
                       value={newSupplierName}
                       onChange={e => setNewSupplierName(e.target.value)}
                       className="w-full bg-black border border-neutral-800 rounded-md px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-neutral-600"

@@ -83,10 +83,10 @@ class InMemoryDatabase {
       this.stores.set(domainA, {
         id: 'store_a',
         shopDomain: domainA,
-        name: 'Rashid Store (Store A)',
+        name: 'Sharry Store (OTS)',
         accessToken: process.env.STORE_A_ACCESS_TOKEN || '',
         ownerEmail: process.env.STORE_A_OWNER_EMAIL || 'rashidkhaliq88@gmail.com',
-        supplierName: 'Rashid',
+        supplierName: 'Sharry',
         webhookSecret: process.env.STORE_A_WEBHOOK_SECRET || null,
         isActive: true,
         createdAt: new Date(),
@@ -99,7 +99,7 @@ class InMemoryDatabase {
       this.stores.set(domainB, {
         id: 'store_b',
         shopDomain: domainB,
-        name: 'Hamza Store (Store B)',
+        name: 'Hamza Store (Vougewing)',
         accessToken: process.env.STORE_B_ACCESS_TOKEN || '',
         ownerEmail: process.env.STORE_B_OWNER_EMAIL || 'Hamzatvc@gmail.com',
         supplierName: 'Hamza',
@@ -195,7 +195,7 @@ class InMemoryDatabase {
   private matchesStoreSupplier(store: MockStore, targetName: string): boolean {
     if (!targetName || !targetName.trim()) return false;
     const cleanTarget = targetName.trim().toLowerCase().replace(/\s+/g, '');
-    
+
     const sSupplier = store.supplierName ? store.supplierName.trim().toLowerCase().replace(/\s+/g, '') : '';
     const sName = store.name ? store.name.trim().toLowerCase().replace(/\s+/g, '') : '';
     const sDomain = store.shopDomain ? store.shopDomain.trim().toLowerCase().replace(/\s+/g, '') : '';

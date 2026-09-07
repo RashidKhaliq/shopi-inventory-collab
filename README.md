@@ -29,31 +29,31 @@ This application automates the entire cross-store dropshipping and inventory syn
 Product ownership is assigned using either:
 - **Shopify Product Metafield (Primary & Preferred)**:
   ```
-  custom.supplier = "Rashid"
+  custom.supplier = "Sharry"
   ```
   *Structured, precise, and less likely to mix with normal product tags.*
 - **Product Tag (Secondary / Fallback)**:
   ```
-  Supplier: Rashid
+  Supplier: Sharry
   ```
-  *Case-insensitive matching (e.g. `Supplier: Rashid`, `supplier: rashid`).*
+  *Case-insensitive matching (e.g. `Supplier: Sharry`, `supplier: sharry`).*
 
-If Store A has the supplier identifier `Rashid`, any product tagged with `custom.supplier = "Rashid"` or `Supplier: Rashid` is recognized as belonging to Store A.
+If Store A (Sharry Store (OTS)) has the supplier identifier `Sharry`, any product tagged with `custom.supplier = "Sharry"` or `Supplier: Sharry` is recognized as belonging to Store A.
 
 ---
 
 ### 2. Scenario 1: Store B sells Store A's product (Cross-Store Dropshipping)
 When **Store B** (Reseller) sells a product owned by **Store A** (Supplier):
 
-1. **Ownership Detection**: The app identifies that the sold SKU belongs to Store A based on `custom.supplier` or `Supplier: Rashid`.
+1. **Ownership Detection**: The app identifies that the sold SKU belongs to Store A based on `custom.supplier` or `Supplier: Sharry`.
 2. **B2B Order Creation on Store A**:
-   - The order is created on Store A under **Store B's owner/store name and email** (`retailerStore.name`, `retailerStore.ownerEmail`), representing a wholesale/B2B transaction placed by Store B.
-   - **Order Comments / Notes**: Includes Store B's original order number and specifies that it is a dropshipping order:
+   - The order is created on Store A under **Store B's owner/store name and email** (`retailerStore.name`, `retailerStore.ownerEmail`), representing a wholesale/B2B transaction placed by Store B with a **50% discount on each product**.
+   - **Order Comments / Notes**: Includes Store B's original order number and specifies that it is a dropshipping order with 50% discount:
      ```
-     Dropshipping order placed by Hamza Store (hamzastore.myshopify.com) for original order #1001.
+     Dropshipping order placed by Hamza Store (Vougewing) (hamzastore.myshopify.com) for original order #1001. 50% discount applied on each product.
      ```
    - **Shopify Sales Channel / Source**: Set to `"Dropshipping"`.
-   - **Order Tags**: Added `Automated Dropship`, `Dropshipping`, `Soldby-Hamza` (using Store B's supplier identifier or store name).
+   - **Order Tags**: Added `Automated Dropship`, `Dropshipping`, `Soldby-Hamza`, `50% Discount Applied`.
 3. **Multi-Store Inventory Sync (> 2 Stores)**:
    - If connected stores are more than 2 (3 or more stores connected), the app immediately deducts/syncs the updated available product inventory across **all connected stores**, ensuring the sold product cannot remain available in other stores.
 4. **Order Sync Audit Log**:
@@ -64,12 +64,12 @@ When **Store B** (Reseller) sells a product owned by **Store A** (Supplier):
 ### 3. Scenario 2: Store A sells its own product (Self-Sale)
 When **Store A** sells a product that Store A owns:
 
-1. **Ownership Detection**: The app identifies Store A as the product owner (`custom.supplier = "Rashid"` matches Store A).
+1. **Ownership Detection**: The app identifies Store A as the product owner (`custom.supplier = "Sharry"` matches Store A).
 2. **No Dropshipping Order**: Since Store A is selling its own product, no B2B dropshipping order is created on another store.
 3. **Inventory Sync Across All Other Stores**:
    - The sold quantity is deducted and synchronized across **all other connected stores** (Store B, Store C, etc.).
 4. **Order Tag & Recording**:
-   - Tagged `Soldby-Rashid` (Store A's name/identifier).
+   - Tagged `Soldby-Sharry` (Store A's name/identifier).
    - Logged in **Order Sync History** as `SUCCESS` (Self Sale) with full SKU details.
 
 ---

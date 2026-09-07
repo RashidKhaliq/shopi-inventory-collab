@@ -317,7 +317,15 @@ export async function createSupplierFulfillmentOrder(
       const parsedId = parseInt(variant.variantId, 10);
       lineItemsPayload.push({
         variant_id: isNaN(parsedId) ? variant.variantId : parsedId,
-        quantity: item.quantity
+        quantity: item.quantity,
+        applied_discounts: [
+          {
+            title: "50% Dropship Discount",
+            description: "50% off dropship discount",
+            value: "50.0",
+            value_type: "percentage"
+          }
+        ]
       });
     } else {
       await db.addLog('ERROR', `SKU '${item.sku}' not found on supplier store ${supplierStore.name}. Excluded from order.`, 'order_creation', supplierStore.shopDomain);
@@ -348,10 +356,10 @@ export async function createSupplierFulfillmentOrder(
       },
       email: sellerEmail,
       source_name: "Dropshipping",
-      tags: `Automated Dropship, Dropshipping, Soldby-${retailerStore.supplierName || sellerStoreName}`,
+      tags: `Automated Dropship, Dropshipping, Soldby-${retailerStore.supplierName || sellerStoreName}, 50% Discount Applied`,
       financial_status: "pending",
       inventory_behaviour: "decrement_obeying_policy",
-      note: `Dropshipping order placed by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}.`
+      note: `Dropshipping order placed by ${sellerStoreName} (${retailerStore.shopDomain}) for original order #${sourceOrderName}. 50% discount applied on each product.`
     }
   };
 
@@ -365,7 +373,7 @@ export async function createSupplierFulfillmentOrder(
     const orderName = newOrder?.name || `#${newOrder?.order_number}`;
     await db.addLog(
       'INFO',
-      `🎉 Successfully created B2B Dropshipping Order ${orderName} on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
+      `🎉 Successfully created B2B Dropshipping Order ${orderName} (with 50% product discount) on ${supplierStore.name} (Source Order #${sourceOrderName} from ${sellerStoreName})`,
       'order_creation',
       supplierStore.shopDomain
     );
